@@ -1,0 +1,108 @@
+name: Validate Archimate Source
+
+on:
+  workflow_call:
+    inputs:
+      source_path:
+        description: Path to the source folder in the caller repository.
+        required: false
+        type: string
+        default: "artifact/source"
+
+jobs:
+  validate:
+    name: Validate archimate source
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Validate source document
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          source_path = Path(os.environ["SOURCE_PATH"])
+
+          def local_name(tag: str) -> str:
+              if "}" in tag:
+                  return tag.rsplit("}", 1)[-1]
+              return tag
+
+          def is_archimate_model(text: str) -> bool:
+              return "archimate" in text.lower()
+
+          if not source_path.exists() or not source_path.is_dir():
+              print(f"Source folder '{source_path}' is missing or not a directory.")
+              sys.exit(1)
+
+          source_files = sorted([p for p in source_path.rglob("*") if p.is_file() and not any(part.startswith(".") for part in p.parts)])
+          if not source_files:
+              print(f"No source document found under '{source_path}'.")
+              sys.exit(1)
+
+          fail = False
+          observations = []
+
+          for file_path in source_files:
+              text = file_path.read_text(encoding="utf-8", errors="replace")
+              if not text.strip():
+                  fail = True
+                  observations.append(f"'{file_path}' is empty.")
+                  continue
+
+              if not is_archimate_model(text):
+                  fail = True
+                  observations.append(f"'{file_path}' is not an acceptable ArchiMate source file.")
+                  continue
+
+              try:
+                  root = ET.fromstring(text)
+                  root_name = local_name(root.tag)
+                  if root_name != "model":
+                      fail = True
+                      observations.append(f"'{file_path}' does not have an ArchiMate model root element.")
+              except Exception as exc:
+                  fail = True
+                  observations.append(f"XML parse failed for '{file_path}': {exc}.")
+
+          summary_path = Path(os.environ.get("GITHUB_STEP_SUMMARY", "/tmp/step-summary.md"))
+          lines = []
+          lines.append("| File | Status |")
+          lines.append("|---|---|")
+          for file_path in source_files:
+              text = file_path.read_text(encoding="utf-8", errors="replace")
+              status = "PASS"
+              if not text.strip() or not is_archimate_model(text):
+                  status = "FAIL"
+              else:
+                  try:
+                      root = ET.fromstring(text)
+                      if local_name(root.tag) != "model":
+                          status = "FAIL"
+                  except Exception:
+                      status = "FAIL"
+              lines.append(f"| `{file_path.as_posix()}` | `{status}` |")
+          lines.append("")
+          lines.append(f"- Source folder: `{source_path}`")
+          lines.append(f"- Overall: `{ 'FAIL' if fail else 'PASS' }`")
+          if len(source_files) > 1:
+              lines.append(f"- Observations: {len(source_files)} files found; expected a single source document.")
+          if observations:
+              lines.append("- Details:")
+              for item in observations:
+                  lines.append(f"  - {item}")
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+          if fail:
+              sys.exit(1)
+          PY
+        env:
+          SOURCE_PATH: ${{ inputs.source_path }}

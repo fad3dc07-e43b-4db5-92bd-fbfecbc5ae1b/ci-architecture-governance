@@ -1,0 +1,85 @@
+name: Validate Repository Structure
+
+on:
+  workflow_call:
+    inputs:
+      repository_name_pattern:
+        description: Regular expression for the caller repository name.
+        required: false
+        type: string
+        default: "^(SBB-(SD|AM|BS)-[0-9]{4}|BS-[0-9]{4})$"
+
+jobs:
+  validate:
+    name: Validate repository structure
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Validate repository structure
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          repo_name = os.environ["GITHUB_REPOSITORY"].split("/")[-1]
+          repository_name_pattern = os.environ["REPOSITORY_NAME_PATTERN"]
+
+          required_paths = [
+              ("README.md", "file"),
+              (".github/workflows/validate.yml", "file"),
+              (".github/governance/design-governance-report.schema.json", "file"),
+              ("artifact", "dir"),
+              ("artifact/source", "dir"),
+              ("artifact/exchange", "dir"),
+              ("artifact/exchange/design.openexchange.xml", "file"),
+          ]
+
+          observations = []
+          fail = False
+
+          repo_ok = re.fullmatch(repository_name_pattern, repo_name) is not None
+          if not repo_ok:
+              fail = True
+              observations.append(f"Repository name '{repo_name}' does not match '{repository_name_pattern}'.")
+
+          for relative_path, expected_kind in required_paths:
+              path = Path(relative_path)
+              exists = path.exists()
+              kind_ok = path.is_file() if expected_kind == "file" else path.is_dir()
+              if not (exists and kind_ok):
+                  fail = True
+                  observations.append(f"Expected {expected_kind} '{relative_path}' is missing or invalid.")
+
+          summary_path = Path(os.environ.get("GITHUB_STEP_SUMMARY", "/tmp/step-summary.md"))
+          lines = []
+          lines.append("| Check | Status |")
+          lines.append("|---|---|")
+          lines.append(f"| Repository name | `{'PASS' if repo_ok else 'FAIL'}` |")
+          for relative_path, expected_kind in required_paths:
+              path = Path(relative_path)
+              exists = path.exists()
+              kind_ok = path.is_file() if expected_kind == "file" else path.is_dir()
+              status = "PASS" if exists and kind_ok else "FAIL"
+              lines.append(f"| `{relative_path}` | `{status}` |")
+          lines.append("")
+          lines.append(f"- Repository: `{repo_name}`")
+          lines.append(f"- Overall: `{ 'FAIL' if fail else 'PASS' }`")
+          if observations:
+              lines.append("- Observations:")
+              for item in observations:
+                  lines.append(f"  - {item}")
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+          if fail:
+              sys.exit(1)
+          PY
+        env:
+          REPOSITORY_NAME_PATTERN: ${{ inputs.repository_name_pattern }}
