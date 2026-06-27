@@ -1,0 +1,54 @@
+schemaVersion: 1
+id: archi-consistency-rule
+title: Regla de consistencia XML ArchiMate para Archi
+author: Miguel Céspedes
+tool: archi
+format: xml
+dialect: archimate
+target:
+  path: artifact/source/design.archimate
+  mode: single-file
+description: Valida la consistencia e integridad básica de un archivo .archimate exportado desde Archi.
+purpose: Verificar que el archivo .archimate conserve una estructura XML ArchiMate coherente y detectar ausencia, vacío o corrupción básica del archivo de intercambio.
+scope: Aplica solo a la fuente editable `artifact/source/design.archimate`. No valida reglas de diseño del modelo ni criterios semánticos de arquitectura.
+checks:
+  - id: source-folder
+    description: Verifica que exista la carpeta fuente.
+    type: path
+    path: artifact/source
+    kind: dir
+    failureMessage: La carpeta artifact/source debe existir.
+
+  - id: single-design-file
+    description: Verifica que solo exista el archivo principal de intercambio.
+    type: single-visible-file
+    path: artifact/source
+    name: design.archimate
+    failureMessage: artifact/source debe contener solo design.archimate.
+
+  - id: non-empty-file
+    description: Verifica que el archivo no esté vacío.
+    type: file-not-empty
+    path: artifact/source/design.archimate
+    failureMessage: design.archimate no puede estar vacío.
+
+  - id: archimate-root
+    description: Verifica que la raíz XML sea la esperada.
+    type: xml-root
+    path: artifact/source/design.archimate
+    root: archimate:model
+    failureMessage: design.archimate debe iniciar con la raíz archimate:model.
+
+  - id: archimate-namespace
+    description: Verifica que el namespace de ArchiMate esté presente.
+    type: text-contains
+    path: artifact/source/design.archimate
+    text: xmlns:archimate="http://www.archimatetool.com/archimate"
+    failureMessage: design.archimate debe incluir el namespace de ArchiMate.
+
+  - id: xsi-namespace
+    description: Verifica que el namespace XSI esté presente.
+    type: text-contains
+    path: artifact/source/design.archimate
+    text: xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    failureMessage: design.archimate debe incluir el namespace xsi.

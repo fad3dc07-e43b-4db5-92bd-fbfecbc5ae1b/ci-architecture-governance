@@ -1,0 +1,80 @@
+schemaVersion: 1
+id: archi-style-rule
+title: Regla de estilo ArchiMate para Archi
+author: Miguel Céspedes
+tool: archi
+format: xml
+dialect: archimate
+target:
+  path: artifact/source/design.archimate
+  mode: single-file
+description: Valida convenciones de nomenclatura y estilo para vistas y elementos ArchiMate.
+purpose: Establecer criterios homogéneos de nombrado para la serialización ArchiMate mantenida en Archi, sin evaluar integridad estructural del archivo.
+scope: Aplica a la nomenclatura de la fuente ArchiMate y sus vistas. No valida integridad XML ni semantica de arquitectura.
+checks:
+  - id: view-name-pattern
+    description: Verifica que los nombres de las vistas sigan la convencion acordada.
+    examples:
+      - "01 Strategy - Overview"
+      - "02 Business - Capabilities"
+    type: xml-name-regex
+    path: artifact/source/design.archimate
+    selector: folder[name]
+    pattern: '^[A-Z][A-Za-z0-9& ]+$'
+    failureMessage: Los nombres de las vistas deben ser descriptivos y estar en Title Case.
+
+  - id: folder-name-pattern
+    description: Verifica que los nombres de carpetas sigan la convencion acordada.
+    examples:
+      - "01 Strategy"
+      - "02 Business"
+    type: xml-name-regex
+    path: artifact/source/design.archimate
+    selector: folder
+    pattern: '^[A-Z][A-Za-z0-9& ]+$'
+    failureMessage: Los nombres de las carpetas deben ser descriptivos y estar en Title Case.
+
+  - id: business-actor-name-pattern
+    description: Verifica que los actores de negocio tengan nombres explícitos y legibles.
+    examples:
+      - "Customer"
+      - "Sales Team"
+    type: xml-name-regex
+    path: artifact/source/design.archimate
+    selector: element[xsi:type="archimate:BusinessActor"]
+    pattern: '^[A-Z][A-Za-z0-9& ()\-]+$'
+    failureMessage: Los Business Actor deben tener nombres claros y en Title Case.
+
+  - id: application-component-name-pattern
+    description: Verifica que los componentes de aplicación sigan la convención acordada.
+    examples:
+      - "CRM System"
+      - "Billing Platform"
+    type: xml-name-regex
+    path: artifact/source/design.archimate
+    selector: element[xsi:type="archimate:ApplicationComponent"]
+    pattern: '^[A-Z][A-Za-z0-9& ()\-]+$'
+    failureMessage: Los Application Component deben tener nombres explícitos y consistentes.
+
+  - id: capability-name-pattern
+    description: Verifica que las capacidades utilicen nombres abstractos consistentes.
+    examples:
+      - "Customer Engagement"
+      - "Order Management"
+    type: xml-name-regex
+    path: artifact/source/design.archimate
+    selector: element[xsi:type="archimate:Capability"]
+    pattern: '^[A-Z][A-Za-z0-9& ()\-]+$'
+    failureMessage: Las Capability deben nombrarse en Title Case y con una denominación clara.
+
+  - id: forbidden-placeholder-names
+    description: Detecta nombres genéricos o temporales no permitidos.
+    examples:
+      - "View 1"
+      - "Folder"
+      - "New element"
+      - "Untitled"
+    type: xml-name-not-contains
+    path: artifact/source/design.archimate
+    selector: any
+    failureMessage: No se permiten nombres genéricos o temporales.

@@ -1,0 +1,6 @@
+rules:
+  - title: Regla de consistencia XML ArchiMate para Archi
+    ruleFile: archi-consistency-rule.yaml
+
+  - title: Regla de estilo XML ArchiMate para Archi
+    ruleFile: archi-style-rule.yaml

@@ -1,354 +1,298 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { extractXmlRoot, getArg, isDirectory, isFile, listVisibleEntries, loadYamlFile, readText, resolveArgPath } from './common.mjs';
 
-function getArg(name, fallback = '') {
-  const idx = process.argv.indexOf(name);
-  return idx >= 0 && process.argv[idx + 1] ? process.argv[idx + 1] : fallback;
-}
+export const Engine = {
+  version: '1.0.0',
+  defaultRepoPath: '.',
 
-function resolveArgPath(name, fallback) {
-  return path.resolve(getArg(name, fallback));
-}
+  init() {
+    console.log(`Iniciando motor v${Engine.version}...`);
+  },
 
-function loadYamlFile(filePath) {
-  const text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const state = { index: 0 };
+  validateYaml(filePath) {
+    return loadYamlFile(filePath);
+  },
 
-  function isBlankOrComment(line) {
-    const trimmed = line.trim();
-    return trimmed === '' || trimmed.startsWith('#');
-  }
+  evaluateRules(repoRoot, ruleSet) {
+    const state = { status: 'PASS', observations: [], checks: [] };
+    const repoName = path.basename(repoRoot);
 
-  function countIndent(line) {
-    return line.match(/^ */)?.[0].length ?? 0;
-  }
-
-  function parseScalar(value) {
-    const trimmed = value.trim();
-    if (trimmed === '') return '';
-    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-      return trimmed.slice(1, -1);
-    }
-    if (trimmed === 'true') return true;
-    if (trimmed === 'false') return false;
-    if (trimmed === 'null' || trimmed === '~') return null;
-    if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
-    return trimmed;
-  }
-
-  function parseKeyValue(text) {
-    const colonIndex = text.indexOf(':');
-    if (colonIndex < 0) {
-      throw new Error(`No se pudo interpretar la línea YAML: '${text}'.`);
-    }
-    const key = text.slice(0, colonIndex).trim();
-    const value = text.slice(colonIndex + 1).trim();
-    return { key, hasValue: value !== '', value };
-  }
-
-  function peekNextIndent(startIndex) {
-    for (let index = startIndex; index < lines.length; index += 1) {
-      if (isBlankOrComment(lines[index])) continue;
-      return countIndent(lines[index]);
-    }
-    return null;
-  }
-
-  function parseYamlBlock(indent) {
-    let mode = null;
-    const objectValue = {};
-    const arrayValue = [];
-
-    while (state.index < lines.length) {
-      const line = lines[state.index];
-      if (isBlankOrComment(line)) {
-        state.index += 1;
-        continue;
-      }
-
-      const currentIndent = countIndent(line);
-      if (currentIndent < indent || currentIndent > indent) {
-        break;
-      }
-
-      const trimmed = line.slice(indent);
-      if (trimmed.startsWith('- ')) {
-        if (mode === null) mode = 'seq';
-        if (mode !== 'seq') break;
-
-        const itemText = trimmed.slice(2).trim();
-        state.index += 1;
-
-        if (itemText === '') {
-          const nextIndent = peekNextIndent(state.index);
-          arrayValue.push(parseYamlBlock(nextIndent ?? indent + 2));
-          continue;
-        }
-
-        if (itemText.includes(':')) {
-          const { key, hasValue, value } = parseKeyValue(itemText);
-          const item = { [key]: hasValue ? parseScalar(value) : null };
-          const nextIndent = peekNextIndent(state.index);
-          if (nextIndent !== null && nextIndent > indent) {
-            const nested = parseYamlBlock(nextIndent);
-            if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-              Object.assign(item, nested);
-            }
-          }
-          arrayValue.push(item);
-          continue;
-        }
-
-        arrayValue.push(parseScalar(itemText));
-        continue;
-      }
-
-      if (mode === null) mode = 'map';
-      if (mode !== 'map') break;
-
-      const { key, hasValue, value } = parseKeyValue(trimmed);
-      state.index += 1;
-
-      if (hasValue) {
-        objectValue[key] = parseScalar(value);
-        continue;
-      }
-
-      const nextIndent = peekNextIndent(state.index);
-      objectValue[key] = nextIndent !== null && nextIndent > indent ? parseYamlBlock(nextIndent) : null;
+    if (ruleSet.schemaVersion !== undefined && ruleSet.schemaVersion !== 1) {
+      state.status = 'FAIL';
+      state.observations.push(`Versión de esquema no soportada: '${ruleSet.schemaVersion}'.`);
     }
 
-    return mode === 'seq' ? arrayValue : objectValue;
-  }
+    for (const check of ruleSet.checks ?? []) {
+      const result = evaluateCheck(repoRoot, repoName, check);
+      state.checks.push({ id: result.id, description: check.description, status: result.status, detail: result.detail, failureMessage: result.failureMessage });
+      if (result.status === 'FAIL') {
+        state.status = 'FAIL';
+        state.observations.push(result.failureMessage);
+      }
+    }
 
-  return parseYamlBlock(0);
-}
+    state.status = state.status === 'PASS' && state.checks.every((item) => item.status === 'PASS') ? 'PASS' : 'FAIL';
+    return state;
+  },
 
-function isDirectory(targetPath) {
-  return fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory();
-}
+  loadManifestValidators(manifestPath) {
+    const manifest = loadYamlFile(manifestPath);
+    const manifestDir = path.dirname(manifestPath);
+    const rules = [];
 
-function isFile(targetPath) {
-  return fs.existsSync(targetPath) && fs.statSync(targetPath).isFile();
-}
+    for (const entry of manifest.rules ?? []) {
+      const ruleSetPath = path.resolve(manifestDir, entry.ruleFile);
+      const ruleSet = loadYamlFile(ruleSetPath);
+      rules.push({
+        id: entry.ruleFile,
+        title: entry.title ?? ruleSet.title ?? entry.ruleFile,
+        description: entry.description ?? ruleSet.description,
+        schemaVersion: ruleSet.schemaVersion ?? 1,
+        tool: ruleSet.tool,
+        format: ruleSet.format,
+        dialect: ruleSet.dialect,
+        target: ruleSet.target,
+        purpose: ruleSet.purpose,
+        scope: ruleSet.scope,
+        checks: ruleSet.checks ?? [],
+      });
+    }
 
-function listVisibleEntries(folderPath) {
-  return fs.readdirSync(folderPath, { withFileTypes: true })
-    .filter((entry) => !entry.name.startsWith('.'))
-    .map((entry) => ({ name: entry.name, isFile: entry.isFile(), isDirectory: entry.isDirectory() }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
+    return rules;
+  },
 
-function readText(filePath) {
-  return fs.readFileSync(filePath, 'utf8');
-}
+  buildResponse(manifestPath, validators) {
+    return {
+      manifest: manifestPath,
+      status: validators.every((item) => item.status === 'PASS') ? 'PASS' : 'FAIL',
+      summary: { pass: validators.filter((item) => item.status === 'PASS').length, fail: validators.filter((item) => item.status === 'FAIL').length },
+      validators,
+    };
+  },
 
-function stripXmlDeclaration(text) {
-  return text.replace(/^\uFEFF?\s*<\?xml[\s\S]*?\?>\s*/, '');
-}
+  runManifest(repoRoot, manifestPath) {
+    const validators = this.loadManifestValidators(manifestPath).map((ruleSet) => ({
+      ...ruleSet,
+      ...this.evaluateRules(repoRoot, ruleSet),
+    }));
 
-function extractXmlRoot(text) {
-  const normalized = stripXmlDeclaration(text);
-  const match = normalized.match(/^<\s*([A-Za-z0-9_.:-]+)([^>]*)>/);
-  return { root: match ? match[1] : '' };
-}
+    return this.buildResponse(manifestPath, validators);
+  },
 
-function defaultMessage(check) {
-  switch (check.type) {
-    case 'repository-name': return `El nombre del repositorio no coincide con '${check.pattern}'.`;
-    case 'path': return `La ruta '${check.path}' no existe o no tiene el tipo esperado.`;
-    case 'single-visible-file': return `La carpeta '${check.path}' no contiene exactamente el archivo '${check.name}'.`;
-    case 'file-not-empty': return `El archivo '${check.path}' está vacío.`;
-    case 'xml-root': return `El archivo '${check.path}' no tiene la raíz XML esperada '${check.root}'.`;
-    case 'text-contains': return `El archivo '${check.path}' no contiene el texto esperado.`;
-    default: return `Regla desconocida: '${check.type}'.`;
-  }
-}
+  renderSummary(response) {
+    const lines = [];
+    lines.push('| Regla | Estado |');
+    lines.push('|---|---|');
+
+    for (const validator of response.validators ?? []) {
+      lines.push(`| ${validator.title ?? validator.id ?? 'Sin título'} | \`${validator.status ?? 'UNKNOWN'}\` |`);
+    }
+
+    lines.push('');
+    lines.push(`- Estado global: \`${response.status ?? 'UNKNOWN'}\``);
+    lines.push(`- Reglas OK: \`${response.summary?.pass ?? 0}\``);
+    lines.push(`- Reglas con fallo: \`${response.summary?.fail ?? 0}\``);
+
+    for (const validator of response.validators ?? []) {
+      lines.push('');
+      lines.push(`### ${validator.title ?? validator.id ?? 'Regla'}`);
+      lines.push(`- Esquema: \`${validator.schemaVersion ?? 'UNKNOWN'}\``);
+      lines.push(`- Herramienta: \`${validator.tool ?? 'UNKNOWN'}\``);
+      lines.push(`- Formato: \`${validator.format ?? 'UNKNOWN'}\``);
+      lines.push(`- Dialecto: \`${validator.dialect ?? 'UNKNOWN'}\``);
+      if (validator.target?.path) {
+        lines.push(`- Objetivo: \`${validator.target.path}\``);
+      }
+      if (validator.purpose) {
+        lines.push(`- Propósito: ${validator.purpose}`);
+      }
+      lines.push(`- Estado: \`${validator.status ?? 'UNKNOWN'}\``);
+      for (const check of validator.checks ?? []) {
+        const detail = check.detail === undefined ? '' : ` (${check.detail})`;
+        lines.push(`- ${check.id}: ${check.description ? `${check.description} ` : ''}\`${check.status}\`${detail}`);
+      }
+      for (const item of validator.observations ?? []) {
+        lines.push(`- ${item}`);
+      }
+    }
+
+    return `${lines.join('\n')}\n`;
+  },
+
+  main() {
+    const mode = getArg('--mode', 'validate');
+
+    if (mode === 'summary') {
+      const response = JSON.parse(process.env.VALIDATION_RESPONSE?.trim() || '{}');
+      const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+
+      if (summaryFile) {
+        fs.mkdirSync(path.dirname(summaryFile), { recursive: true });
+        fs.writeFileSync(summaryFile, this.renderSummary(response), 'utf8');
+      }
+
+      process.stdout.write(`${response.status ?? 'FAIL'}\n`);
+      return;
+    }
+
+    const repoRoot = resolveArgPath('--repo-root', process.cwd());
+    const manifestPath = resolveArgPath('--manifest', path.join(process.cwd(), 'rules/manifest.yaml'));
+
+    const response = this.runManifest(repoRoot, manifestPath);
+    process.stdout.write(`${JSON.stringify(response)}\n`);
+  },
+};
 
 function evaluateCheck(repoRoot, repoName, check) {
   const id = check.id || check.type;
-  const message = check.message || defaultMessage(check);
+  const defaultMessages = {
+    'repository-name': `El nombre del repositorio no coincide con '${check.pattern}'.`,
+    path: `La ruta '${check.path}' no existe o no tiene el tipo esperado.`,
+    'single-visible-file': `La carpeta '${check.path}' no contiene exactamente el archivo '${check.name}'.`,
+    'file-not-empty': `El archivo '${check.path}' está vacío.`,
+    'xml-root': `El archivo '${check.path}' no tiene la raíz XML esperada '${check.root}'.`,
+    'text-contains': `El archivo '${check.path}' no contiene el texto esperado.`,
+    'xml-name-regex': `El archivo '${check.path}' no cumple la convención de nombres esperada.`,
+    'xml-name-not-contains': `El archivo '${check.path}' contiene nombres no permitidos.`,
+  };
+  const failureMessage = check.failureMessage || defaultMessages[check.type] || `Regla desconocida: '${check.type}'.`;
 
   if (check.type === 'repository-name') {
     const pattern = new RegExp(check.pattern);
     const ok = pattern.test(repoName);
-    return { id, status: ok ? 'PASS' : 'FAIL', detail: repoName, message: ok ? undefined : message };
+    return { id, description: check.description, status: ok ? 'PASS' : 'FAIL', detail: repoName, failureMessage: ok ? undefined : failureMessage };
   }
 
   const absolutePath = path.resolve(repoRoot, check.path);
 
   if (check.type === 'path') {
+    if (check.kind !== 'file' && check.kind !== 'dir') {
+      return { id, description: check.description, status: 'FAIL', detail: check.kind, failureMessage: `Tipo de ruta no válido: '${check.kind}'.` };
+    }
     const ok = check.kind === 'file' ? isFile(absolutePath) : isDirectory(absolutePath);
-    return { id, status: ok ? 'PASS' : 'FAIL', detail: check.kind, message: ok ? undefined : message };
+    return { id, description: check.description, status: ok ? 'PASS' : 'FAIL', detail: check.kind, failureMessage: ok ? undefined : failureMessage };
   }
 
   if (check.type === 'single-visible-file') {
-    const ok = isDirectory(absolutePath)
-      && (() => {
-        const entries = listVisibleEntries(absolutePath);
-        return entries.length === 1 && entries[0].name === check.name && entries[0].isFile && !entries[0].isDirectory;
-      })();
-    return { id, status: ok ? 'PASS' : 'FAIL', detail: check.name, message: ok ? undefined : message };
+    let ok = false;
+    if (isDirectory(absolutePath)) {
+      const entries = listVisibleEntries(absolutePath);
+      ok = entries.length === 1 && entries[0].name === check.name && entries[0].isFile && !entries[0].isDirectory;
+    }
+    return { id, description: check.description, status: ok ? 'PASS' : 'FAIL', detail: check.name, failureMessage: ok ? undefined : failureMessage };
   }
 
   if (check.type === 'file-not-empty') {
     const ok = isFile(absolutePath) && readText(absolutePath).trim().length > 0;
-    return { id, status: ok ? 'PASS' : 'FAIL', detail: check.path, message: ok ? undefined : message };
+    return { id, description: check.description, status: ok ? 'PASS' : 'FAIL', detail: check.path, failureMessage: ok ? undefined : failureMessage };
   }
 
   if (check.type === 'xml-root') {
     if (!isFile(absolutePath)) {
-      return { id, status: 'FAIL', detail: check.root, message };
+      return { id, description: check.description, status: 'FAIL', detail: check.root, failureMessage };
     }
     const { root } = extractXmlRoot(readText(absolutePath));
     const ok = root === check.root;
-    return { id, status: ok ? 'PASS' : 'FAIL', detail: root, message: ok ? undefined : message };
+    return { id, description: check.description, status: ok ? 'PASS' : 'FAIL', detail: root, failureMessage: ok ? undefined : failureMessage };
   }
 
   if (check.type === 'text-contains') {
     const ok = isFile(absolutePath) && readText(absolutePath).includes(check.text);
-    return { id, status: ok ? 'PASS' : 'FAIL', detail: check.text, message: ok ? undefined : message };
+    return { id, description: check.description, status: ok ? 'PASS' : 'FAIL', detail: check.text, failureMessage: ok ? undefined : failureMessage };
   }
 
-  return { id, status: 'FAIL', detail: check.type, message: `Regla desconocida: '${check.type}'.` };
-}
+  if (check.type === 'xml-name-regex') {
+    if (!isFile(absolutePath)) {
+      return { id, description: check.description, status: 'FAIL', detail: check.selector ?? check.path, failureMessage };
+    }
 
-function createValidationState() {
-  return { status: 'PASS', observations: [], checks: [] };
-}
-
-function failValidation(state, message) {
-  state.status = 'FAIL';
-  state.observations.push(message);
-}
-
-function addValidationCheck(state, id, status, detail = undefined, message = undefined) {
-  state.checks.push({ id, status, detail, message });
-}
-
-function createValidationReport(base, state) {
-  return {
-    ...base,
-    status: state.status === 'PASS' && state.checks.every((item) => item.status === 'PASS') ? 'PASS' : 'FAIL',
-    checks: state.checks,
-    observations: state.observations,
-  };
-}
-
-function evaluateRuleSet(repoRoot, ruleSet) {
-  const state = createValidationState();
-  const repoName = path.basename(repoRoot);
-
-  if (ruleSet.repositoryNamePattern) {
-    const result = evaluateCheck(repoRoot, repoName, {
-      type: 'repository-name',
-      pattern: ruleSet.repositoryNamePattern,
-      message: ruleSet.repositoryNameMessage,
-      id: 'repository_name',
-    });
-    addValidationCheck(state, result.id, result.status, result.detail, result.message);
-    if (result.status === 'FAIL') failValidation(state, result.message);
-  }
-
-  for (const check of ruleSet.checks ?? []) {
-    const result = evaluateCheck(repoRoot, repoName, check);
-    addValidationCheck(state, result.id, result.status, result.detail, result.message);
-    if (result.status === 'FAIL') failValidation(state, result.message);
-  }
-
-  return createValidationReport({ id: ruleSet.id, title: ruleSet.title ?? ruleSet.id, description: ruleSet.description }, state);
-}
-
-function runManifest(repoRoot, manifestPath) {
-  const manifest = loadYamlFile(manifestPath);
-  const manifestDir = path.dirname(manifestPath);
-  const validators = [];
-
-  for (const entry of manifest.validators ?? []) {
-    const ruleSetPath = path.resolve(manifestDir, entry.ruleFile);
-    const ruleSet = loadYamlFile(ruleSetPath);
-    const mergedRuleSet = {
-      id: entry.id ?? ruleSet.id,
-      title: entry.title ?? ruleSet.title ?? entry.id ?? ruleSet.id,
-      description: entry.description ?? ruleSet.description,
-      repositoryNamePattern: ruleSet.repositoryNamePattern,
-      repositoryNameMessage: ruleSet.repositoryNameMessage,
-      checks: ruleSet.checks ?? [],
+    const entries = selectXmlEntries(readText(absolutePath), check.selector);
+    if (entries.length === 0) {
+      return { id, description: check.description, status: 'FAIL', detail: 'sin coincidencias', failureMessage };
+    }
+    const pattern = new RegExp(check.pattern);
+    const firstFailure = entries.find((entry) => !pattern.test(entry.name ?? ''));
+    return {
+      id,
+      description: check.description,
+      status: firstFailure ? 'FAIL' : 'PASS',
+      detail: firstFailure ? firstFailure.name : `${entries.length} entradas`,
+      failureMessage: firstFailure ? failureMessage : undefined,
     };
-    validators.push(evaluateRuleSet(repoRoot, mergedRuleSet));
   }
 
-  return {
-    manifest: manifestPath,
-    status: validators.every((item) => item.status === 'PASS') ? 'PASS' : 'FAIL',
-    summary: { pass: validators.filter((item) => item.status === 'PASS').length, fail: validators.filter((item) => item.status === 'FAIL').length },
-    validators,
-  };
-}
-
-function readJsonEnv(name, fallback = '{}') {
-  return JSON.parse(process.env[name] ?? fallback);
-}
-
-function writeTextFile(filePath, content) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf8');
-}
-
-function renderValidationSummary(report) {
-  const lines = [];
-  lines.push('| Regla | Estado |');
-  lines.push('|---|---|');
-
-  for (const validator of report.validators ?? []) {
-    lines.push(`| ${validator.title ?? validator.id ?? 'Sin título'} | \`${validator.status ?? 'UNKNOWN'}\` |`);
-  }
-
-  lines.push('');
-  lines.push(`- Estado global: \`${report.status ?? 'UNKNOWN'}\``);
-  lines.push(`- Reglas OK: \`${report.summary?.pass ?? 0}\``);
-  lines.push(`- Reglas con fallo: \`${report.summary?.fail ?? 0}\``);
-
-  for (const validator of report.validators ?? []) {
-    lines.push('');
-    lines.push(`### ${validator.title ?? validator.id ?? 'Regla'}`);
-    lines.push(`- Estado: \`${validator.status ?? 'UNKNOWN'}\``);
-    for (const check of validator.checks ?? []) {
-      const detail = check.detail === undefined ? '' : ` (${check.detail})`;
-      lines.push(`- ${check.id}: \`${check.status}\`${detail}`);
-    }
-    for (const item of validator.observations ?? []) {
-      lines.push(`- ${item}`);
-    }
-  }
-
-  return `${lines.join('\n')}\n`;
-}
-
-function main() {
-  const mode = getArg('--mode', 'validate');
-
-  if (mode === 'summary') {
-    const report = readJsonEnv('VALIDATION_REPORT');
-    const summaryFile = process.env.GITHUB_STEP_SUMMARY;
-
-    if (summaryFile) {
-      writeTextFile(summaryFile, renderValidationSummary(report));
+  if (check.type === 'xml-name-not-contains') {
+    if (!isFile(absolutePath)) {
+      return { id, description: check.description, status: 'FAIL', detail: check.selector ?? check.path, failureMessage };
     }
 
-    process.stdout.write(`${report.status ?? 'FAIL'}\n`);
-    return;
+    const entries = selectXmlEntries(readText(absolutePath), check.selector);
+    if (entries.length === 0) {
+      return { id, description: check.description, status: 'FAIL', detail: 'sin coincidencias', failureMessage };
+    }
+    const forbidden = new Set(check.forbidden ?? []);
+    const firstFailure = entries.find((entry) => forbidden.has(entry.name ?? ''));
+    return {
+      id,
+      description: check.description,
+      status: firstFailure ? 'FAIL' : 'PASS',
+      detail: firstFailure ? firstFailure.name : `${entries.length} entradas`,
+      failureMessage: firstFailure ? failureMessage : undefined,
+    };
   }
 
-  const repoRoot = resolveArgPath('--repo-root', process.cwd());
-  const manifestPath = resolveArgPath('--manifest', path.join(process.cwd(), 'rules/validation-manifest.yaml'));
-  const reportFile = resolveArgPath('--report-file', path.join(process.cwd(), 'validation-report.json'));
-
-  const report = runManifest(repoRoot, manifestPath);
-  fs.mkdirSync(path.dirname(reportFile), { recursive: true });
-  fs.writeFileSync(reportFile, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  process.stdout.write(`${report.status}\n`);
+  return { id, description: check.description, status: 'FAIL', detail: check.type, failureMessage: `Regla desconocida: '${check.type}'.` };
 }
 
-main();
+function selectXmlEntries(xmlText, selector) {
+  const entries = parseXmlEntries(xmlText);
+
+  if (!selector || selector === 'any') {
+    return entries;
+  }
+
+  if (selector === 'folder') {
+    return entries.filter((entry) => entry.tag === 'folder');
+  }
+
+  if (selector === 'folder[name]') {
+    return entries.filter((entry) => entry.tag === 'folder' && entry.attrs.name !== undefined);
+  }
+
+  const elementTypeMatch = selector.match(/^element\[xsi:type="([^"]+)"\]$/);
+  if (elementTypeMatch) {
+    const expectedType = elementTypeMatch[1];
+    return entries.filter((entry) => entry.tag === 'element' && entry.attrs['xsi:type'] === expectedType);
+  }
+
+  return [];
+}
+
+function parseXmlEntries(xmlText) {
+  const normalized = xmlText.replace(/^\uFEFF?\s*<\?xml[\s\S]*?\?>\s*/, '');
+  const entries = [];
+  const tagPattern = new RegExp('<(?!\\?|\\/|!--)([A-Za-z0-9_.:-]+)([^>]*)\\/?>(?!>)', 'g');
+  let match;
+
+  while ((match = tagPattern.exec(normalized)) !== null) {
+    const tag = match[1];
+    const attrs = {};
+    const attrText = match[2] || '';
+    const attrPattern = /([A-Za-z0-9_.:-]+)="([^"]*)"/g;
+    let attrMatch;
+
+    while ((attrMatch = attrPattern.exec(attrText)) !== null) {
+      attrs[attrMatch[1]] = attrMatch[2];
+    }
+
+    entries.push({ tag, attrs, name: attrs.name });
+  }
+
+  return entries;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  Engine.main();
+}

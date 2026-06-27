@@ -1,4 +1,0 @@
-validators:
-  - id: archimate-xml-source-rule
-    title: Regla de serialización de fuente XML ArchiMate
-    ruleFile: archimate-xml-source-rule.yaml
