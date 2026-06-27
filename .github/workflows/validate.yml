@@ -43,7 +43,7 @@ jobs:
           MANIFEST_FILE: ${{ inputs.manifest_file }}
         run: |
           report_file="$RUNNER_TEMP/governance-validation-report.json"
-          status="$(node governance/scripts/validation-engine.mjs --repo-root "$GITHUB_WORKSPACE" --manifest "governance/$MANIFEST_FILE" --report-file "$report_file")"
+          status="$(node governance/linter-engine.mjs --repo-root "$GITHUB_WORKSPACE" --manifest "governance/$MANIFEST_FILE" --report-file "$report_file")"
           report="$(cat "$report_file")"
           printf 'status=%s\n' "$status" >> "$GITHUB_OUTPUT"
           printf 'report<<EOF\n%s\nEOF\n' "$report" >> "$GITHUB_OUTPUT"
