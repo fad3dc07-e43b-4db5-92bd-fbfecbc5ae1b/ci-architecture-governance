@@ -25,6 +25,8 @@ No demuestra de forma absoluta el editor de origen; valida marcadores y estructu
 ### Entrada
 
 - `--source-path`: carpeta fuente a validar.
+- `--expected-file`: nombre del archivo fuente esperado.
+- `--expected-root-tag`: etiqueta raíz XML esperada.
 - `--report-file`: ruta del JSON de salida.
 
 ### Salida
