@@ -33,7 +33,7 @@ jobs:
       - name: Checkout de gobernanza
         uses: actions/checkout@v4
         with:
-          repository: fad3dc07-e43b-4db5-92bd-fbfecbc5ae1b/ci-architecture-governance
+          repository: fad3dc07-e43b-4db5-92bd-fbfecbc5ae1b/ContinuousArchitectureWorkflow
           path: governance
 
       - name: Instalar dependencias del linter
@@ -63,7 +63,7 @@ jobs:
       - name: Checkout de gobernanza
         uses: actions/checkout@v4
         with:
-          repository: fad3dc07-e43b-4db5-92bd-fbfecbc5ae1b/ci-architecture-governance
+          repository: fad3dc07-e43b-4db5-92bd-fbfecbc5ae1b/ContinuousArchitectureWorkflow
           path: governance
 
       - name: Instalar dependencias del linter
