@@ -1,9 +1,0 @@
-{
-  "validators": [
-    {
-      "id": "archi-archimate-source",
-      "title": "Fuente Archi ArchiMate",
-      "ruleFile": "archi-archimate-source.json"
-    }
-  ]
-}

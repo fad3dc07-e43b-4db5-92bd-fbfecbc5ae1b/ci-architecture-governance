@@ -8,7 +8,12 @@ Contiene componentes compartidos para leer argumentos, crear estado de validaci�
 
 ## `validation-engine.mjs`
 
-Es el motor declarativo. Lee un manifest y ejecuta reglas JSON sin código por validador.
+Es el motor declarativo. Lee un manifest YAML y ejecuta reglas sin código por validador.
+
+### Archivos esperados
+
+- `rules/validators.yaml`
+- `rules/archi-archimate-source.yaml`
 
 ### Tipos de reglas soportadas
 

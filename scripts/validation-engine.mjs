@@ -6,7 +6,7 @@ import {
   createValidationState,
   failValidation,
   getArg,
-  loadJsonFile,
+  loadYamlFile,
   resolveArgPath,
   writeJsonReport,
 } from './common.mjs';
@@ -150,13 +150,13 @@ function evaluateRuleSet(repoRoot, ruleSet) {
 }
 
 function runManifest(repoRoot, manifestPath) {
-  const manifest = loadJsonFile(manifestPath);
+  const manifest = loadYamlFile(manifestPath);
   const manifestDir = path.dirname(manifestPath);
   const validators = [];
 
   for (const entry of manifest.validators ?? []) {
     const ruleSetPath = path.resolve(manifestDir, entry.ruleFile);
-    const ruleSet = loadJsonFile(ruleSetPath);
+    const ruleSet = loadYamlFile(ruleSetPath);
     const mergedRuleSet = {
       id: entry.id ?? ruleSet.id,
       title: entry.title ?? ruleSet.title ?? entry.id ?? ruleSet.id,

@@ -10,6 +10,6 @@ Repositorio central de gobernanza para activos arquitectónicos.
 
 ## Estructura
 
-- `rules/`: manifest y reglas declarativas.
+- `rules/`: manifest y reglas declarativas en YAML.
 - `scripts/`: engine, componentes compartidos y render del resumen.
 - `.github/workflows/validate.yml`: workflow reusable para el repo llamador.

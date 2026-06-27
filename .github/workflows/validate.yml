@@ -7,7 +7,7 @@ on:
         description: Path to the validator manifest relative to the governance repository checkout.
         required: false
         type: string
-        default: "rules/validators.json"
+        default: "rules/validators.yaml"
     outputs:
       status:
         description: Combined validation status.
