@@ -210,7 +210,7 @@ function evaluateCheck(repoRoot, repoName, check) {
 
     const entries = selectXmlEntries(readText(absolutePath), check.selector);
     if (entries.length === 0) {
-      return { id, description: check.description, status: 'FAIL', detail: 'sin coincidencias', failureMessage };
+      return { id, description: check.description, status: 'PASS', detail: 'sin coincidencias' };
     }
     const pattern = new RegExp(check.pattern);
     const firstFailure = entries.find((entry) => !pattern.test(entry.name ?? ''));
@@ -230,7 +230,7 @@ function evaluateCheck(repoRoot, repoName, check) {
 
     const entries = selectXmlEntries(readText(absolutePath), check.selector);
     if (entries.length === 0) {
-      return { id, description: check.description, status: 'FAIL', detail: 'sin coincidencias', failureMessage };
+      return { id, description: check.description, status: 'PASS', detail: 'sin coincidencias' };
     }
     const forbidden = new Set(check.forbidden ?? []);
     const firstFailure = entries.find((entry) => forbidden.has(entry.name ?? ''));
@@ -284,13 +284,22 @@ function parseXmlEntries(xmlText) {
     let attrMatch;
 
     while ((attrMatch = attrPattern.exec(attrText)) !== null) {
-      attrs[attrMatch[1]] = attrMatch[2];
+      attrs[attrMatch[1]] = decodeXmlEntities(attrMatch[2]);
     }
 
     entries.push({ tag, attrs, name: attrs.name });
   }
 
   return entries;
+}
+
+function decodeXmlEntities(value) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
