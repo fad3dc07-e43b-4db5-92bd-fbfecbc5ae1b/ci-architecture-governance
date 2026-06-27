@@ -18,7 +18,7 @@ on:
 
 jobs:
   execute_rules:
-    name: Ejecutar reglas
+    name: Validar cumplimiento
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,22 +27,22 @@ jobs:
       response: ${{ steps.validate.outputs.response }}
 
     steps:
-      - name: Obtener repositorio llamador
+      - name: Checkout del consumidor
         uses: actions/checkout@v4
 
-      - name: Obtener repositorio de gobernanza
+      - name: Checkout de gobernanza
         uses: actions/checkout@v4
         with:
           repository: fad3dc07-e43b-4db5-92bd-fbfecbc5ae1b/ci-architecture-governance
           path: governance
 
-      - name: Instalar dependencias
+      - name: Instalar dependencias del linter
         shell: bash
         working-directory: governance
         run: npm ci
 
       - id: run_engine
-        name: Ejecutar motor
+        name: Ejecutar linter
         shell: bash
         env:
           MANIFEST_FILE: ${{ inputs.manifest_file }}
@@ -54,24 +54,24 @@ jobs:
           if [ "$status" != "PASS" ]; then exit 1; fi
 
   publish-summary:
-    name: Publicar resumen
+    name: Publicar reporte
     needs:
       - execute_rules
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Obtener repositorio de gobernanza
+      - name: Checkout de gobernanza
         uses: actions/checkout@v4
         with:
           repository: fad3dc07-e43b-4db5-92bd-fbfecbc5ae1b/ci-architecture-governance
           path: governance
 
-      - name: Instalar dependencias
+      - name: Instalar dependencias del linter
         shell: bash
         working-directory: governance
         run: npm ci
 
-      - name: Mostrar informe consolidado
+      - name: Mostrar reporte consolidado
         shell: bash
         run: |
           status="$(VALIDATION_RESPONSE="$VALIDATION_RESPONSE" node governance/src/engine.mjs --mode summary)"
