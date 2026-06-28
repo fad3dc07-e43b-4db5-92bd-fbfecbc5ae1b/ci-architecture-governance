@@ -1,8 +1,8 @@
 # CALinter
 
-Repositorio de gobernanza del linter `continuous-architecture-linter`.
+Repositorio del linter `CALinter`.
 
-Este proyecto centraliza las reglas de cumplimiento para modelos ArchiMate exportados desde Archi y expone un reusable workflow para que los repos clientes validen su contenido sin duplicar lógica.
+Este proyecto centraliza las reglas de cumplimiento para modelos ArchiMate exportados desde Archi y expone un reusable workflow de cumplimiento para que los repos clientes validen su contenido sin duplicar lógica.
 
 ## Qué incluye
 
