@@ -305,8 +305,9 @@ function evaluateXpathRule(xmlText, validation, rule, { sectionContextNodes, dsl
   }
 
   if (validation.uniqueField) {
+    const uniqueValues = nodes.map((node) => readField(node, validation.uniqueField));
     const seen = new Set();
-    for (const value of values) {
+    for (const value of uniqueValues) {
       if (seen.has(value)) {
         return { status: severityStatus(rule.severity), detail: String(value), message: rule.failureMessage };
       }
@@ -363,6 +364,10 @@ function readField(node, field) {
 
   if (field.startsWith('attrs.')) {
     return node?.attribs?.[field.slice('attrs.'.length)];
+  }
+
+  if (node?.attribs && field in node.attribs) {
+    return node.attribs[field];
   }
 
   return node?.[field];
