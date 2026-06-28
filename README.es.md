@@ -47,5 +47,6 @@ El GitHub Action reutilizable vive en `.github/workflows/compliance.yml` y usa `
 - `PASS`: no hay problemas bloqueantes.
 - `WARN`: hay hallazgos no bloqueantes, pero la ejecución puede continuar.
 - `FAIL`: hay problemas bloqueantes y el workflow debe detenerse.
+- `ERROR`: el motor o el workflow tuvieron un problema técnico.
 
 La respuesta JSON usa el mismo valor en `status`.

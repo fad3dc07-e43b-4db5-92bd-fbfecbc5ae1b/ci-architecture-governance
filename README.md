@@ -47,5 +47,6 @@ The reusable GitHub Action lives in `.github/workflows/compliance.yml` and defau
 - `PASS`: no blocking issues.
 - `WARN`: non-blocking findings were detected, but the run can continue.
 - `FAIL`: blocking issues were detected and the workflow should stop.
+- `ERROR`: the engine or workflow hit a technical problem.
 
 The JSON response uses the same top-level `status` value.

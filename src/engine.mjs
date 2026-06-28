@@ -75,6 +75,8 @@ export const Engine = {
 
     lines.push('');
     lines.push(`- Estado global: \`${response.status ?? 'UNKNOWN'}\``);
+    lines.push(`- Estado del sistema: \`${response.systemStatus ?? 'UNKNOWN'}\``);
+    lines.push(`- Estado del linter: \`${response.lintStatus ?? 'UNKNOWN'}\``);
     lines.push(`- DSLs OK: \`${response.summary?.pass ?? 0}\``);
     lines.push(`- DSLs con advertencia: \`${response.summary?.warn ?? 0}\``);
     lines.push(`- DSLs con fallo: \`${response.summary?.fail ?? 0}\``);
@@ -162,6 +164,7 @@ function evaluateGuideDsl(dsl, context, guideKey, dslType) {
 
   const hasErrorFailure = ruleResults.some((result) => result.status === 'FAIL');
   const hasWarningFailure = ruleResults.some((result) => result.status === 'WARN');
+  const lintStatus = hasErrorFailure ? 'FAIL' : (hasWarningFailure ? 'WARN' : 'PASS');
 
   return {
     id: context.dslPath ? path.basename(context.dslPath) : dslType,
@@ -172,7 +175,9 @@ function evaluateGuideDsl(dsl, context, guideKey, dslType) {
     description: dsl.metadata?.description,
     author: dsl.metadata?.author,
     purpose: dsl.metadata?.purpose,
-    status: hasErrorFailure ? 'FAIL' : (hasWarningFailure ? 'WARN' : 'PASS'),
+    status: lintStatus,
+    systemStatus: 'PASS',
+    lintStatus,
     checks: ruleResults,
     observations: ruleResults
       .filter((check) => check.status !== 'PASS')
@@ -208,8 +213,8 @@ function evaluateRule(rule, context, { section, sectionContextNodes, dslType }) 
     return evaluateXpathRule(artifactText, validation, rule, { sectionContextNodes, dslType });
   }
 
-  return { status: 'FAIL', detail: 'unsupported', message: rule.failureMessage ?? `La regla '${section ?? rule.description ?? 'sin nombre'}' no tiene validación soportada.` };
-}
+    return { status: 'ERROR', detail: 'unsupported', message: rule.failureMessage ?? `La regla '${section ?? rule.description ?? 'sin nombre'}' no tiene validación soportada.` };
+  }
 
 function evaluateTextPlain(filePath) {
   const buffer = fs.readFileSync(filePath);
@@ -426,12 +431,14 @@ function buildResponse(manifestPath, artifact, validators) {
     fail: validators.filter((item) => item.status === 'FAIL').length,
   };
 
-  const status = summary.fail > 0 ? 'FAIL' : (summary.warn > 0 ? 'WARN' : 'PASS');
+  const lintStatus = summary.fail > 0 ? 'FAIL' : (summary.warn > 0 ? 'WARN' : 'PASS');
 
   return {
     manifest: manifestPath,
     artifact,
-    status,
+    status: lintStatus,
+    systemStatus: 'PASS',
+    lintStatus,
     summary,
     validators,
   };
@@ -527,7 +534,9 @@ function escapeRegExp(value) {
 function buildErrorResponse(manifestPath, error) {
   return {
     manifest: manifestPath,
-    status: 'FAIL',
+    status: 'ERROR',
+    systemStatus: 'ERROR',
+    lintStatus: 'UNKNOWN',
     summary: { pass: 0, warn: 0, fail: 0 },
     validators: [],
     error: error instanceof Error ? error.message : String(error),

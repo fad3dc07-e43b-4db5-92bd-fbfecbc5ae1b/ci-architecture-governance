@@ -51,7 +51,7 @@ jobs:
           status="$(node -e "const response = JSON.parse(process.argv[1]); process.stdout.write(response.status || 'FAIL');" "$response")"
           printf 'status=%s\n' "$status" >> "$GITHUB_OUTPUT"
           printf 'response<<EOF\n%s\nEOF\n' "$response" >> "$GITHUB_OUTPUT"
-          if [ "$status" = "FAIL" ]; then exit 1; fi
+          if [ "$status" = "FAIL" ] || [ "$status" = "ERROR" ]; then exit 1; fi
 
   publish-summary:
     name: Publicar reporte
