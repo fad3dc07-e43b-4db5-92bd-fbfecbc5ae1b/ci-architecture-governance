@@ -13,26 +13,39 @@ export const Engine = {
 
   main() {
     const mode = getArg('--mode', 'validate');
-
-    if (mode === 'summary') {
-      const response = JSON.parse(process.env.VALIDATION_RESPONSE?.trim() || '{}');
-      const summaryFile = process.env.GITHUB_STEP_SUMMARY;
-
-      if (summaryFile) {
-        fs.mkdirSync(path.dirname(summaryFile), { recursive: true });
-        fs.writeFileSync(summaryFile, this.renderSummary(response), 'utf8');
-      }
-
-      process.stdout.write(`${response.status ?? 'FAIL'}\n`);
-      return;
-    }
-
     const repoRoot = resolveArgPath('--repo-root', process.cwd());
     const manifestPath = resolveArgPath('--manifest', path.join(process.cwd(), this.defaultManifestPath));
 
+    if (mode === 'summary') {
+      try {
+        const response = this.runManifest(repoRoot, manifestPath);
+        const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+
+        if (summaryFile) {
+          fs.mkdirSync(path.dirname(summaryFile), { recursive: true });
+          fs.writeFileSync(summaryFile, this.renderSummary(response), 'utf8');
+        }
+
+        process.stdout.write(`${response.systemStatus === 'ERROR' ? 'ERROR' : 'PASS'}\n`);
+        return;
+      } catch (error) {
+        const response = this.buildErrorResponse(manifestPath, error);
+        const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+
+        if (summaryFile) {
+          fs.mkdirSync(path.dirname(summaryFile), { recursive: true });
+          fs.writeFileSync(summaryFile, this.renderSummary(response), 'utf8');
+        }
+
+        process.stdout.write('ERROR\n');
+        process.exitCode = 1;
+        return;
+      }
+    }
+
     try {
       const response = this.runManifest(repoRoot, manifestPath);
-      process.stdout.write(`${JSON.stringify(response)}\n`);
+      process.stdout.write(`${JSON.stringify(this.buildValidateResponse(response))}\n`);
     } catch (error) {
       const response = this.buildErrorResponse(manifestPath, error);
       process.stdout.write(`${JSON.stringify(response)}\n`);
@@ -62,6 +75,17 @@ export const Engine = {
     });
 
     return buildResponse(manifestPath, artifact, validators);
+  },
+
+  buildValidateResponse(response) {
+    return {
+      manifest: response.manifest,
+      status: response.status,
+      systemStatus: response.systemStatus,
+      lintStatus: response.lintStatus,
+      summary: response.summary,
+      error: response.error,
+    };
   },
 
   renderSummary(response) {

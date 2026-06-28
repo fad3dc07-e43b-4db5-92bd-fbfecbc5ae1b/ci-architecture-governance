@@ -53,6 +53,6 @@ jobs:
         if: always()
         shell: bash
         env:
-          VALIDATION_RESPONSE: ${{ steps.validate.outputs.response }}
+          MANIFEST_FILE: ${{ inputs.manifest_file }}
         run: |
-          VALIDATION_RESPONSE="$VALIDATION_RESPONSE" node governance/src/engine.mjs --mode summary
+          node governance/src/engine.mjs --mode summary --repo-root "$GITHUB_WORKSPACE" --manifest "governance/$MANIFEST_FILE"
