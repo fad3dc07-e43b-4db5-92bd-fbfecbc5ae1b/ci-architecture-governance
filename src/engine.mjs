@@ -103,10 +103,12 @@ export const Engine = {
     lines.push('');
     lines.push('| Indicador | Valor |');
     lines.push('|---|---|');
-    lines.push(`| Estado del diseño | ${statusBadge(response.lintStatus ?? response.status ?? 'UNKNOWN')} |`);
+    lines.push(`| Resultado del diseño | ${statusBadge(response.lintStatus ?? response.status ?? 'UNKNOWN')} |`);
     lines.push(`| Decisión | ${decision} |`);
-    lines.push(`| Merge permitido | ${isMergeAllowed(response.lintStatus ?? response.status ?? 'UNKNOWN') ? 'Sí' : 'No'} |`);
-    lines.push(`| Acción requerida | ${escapeTableCell(executive.actionRequired)} |`);
+    lines.push(`| ¿Puedo continuar? | ${isMergeAllowed(response.lintStatus ?? response.status ?? 'UNKNOWN') ? 'Sí' : 'No'} |`);
+    lines.push(`| ¿Es bloqueante? | ${stats.failures > 0 ? 'Sí' : 'No'} |`);
+    lines.push(`| ¿Qué debo corregir? | ${escapeTableCell(executive.actionRequired)} |`);
+    lines.push(`| ¿Dónde está el problema? | ${escapeTableCell(executive.problemLocation)} |`);
     lines.push(`| Errores bloqueantes | \`${stats.failures}\` |`);
     lines.push(`| Advertencias | \`${stats.warnings}\` |`);
     lines.push(`| DSLs ejecutados | \`${validators.length}\` |`);
@@ -215,14 +217,17 @@ function buildExecutiveSummary(response, stats, validators, allChecks) {
   if (response.systemStatus === 'ERROR') {
     return {
       actionRequired: 'Resolver el error técnico del motor',
+      problemLocation: 'Motor / pipeline',
       summaryLine: 'No se pudo evaluar el diseño por un error técnico.',
     };
   }
 
   if (response.lintStatus === 'FAIL') {
     const failureLabel = stats.failures === 1 ? 'error bloqueante' : 'errores bloqueantes';
+    const firstFailure = allChecks.find(({ check }) => check.status === 'FAIL');
     return {
       actionRequired: `${stats.failures} ${failureLabel} deben corregirse`,
+      problemLocation: firstFailure ? `${firstFailure.check.group ?? 'General'} / ${firstFailure.check.id}` : 'General',
       summaryLine: `El diseño no cumple: hay ${stats.failures} error(es) bloqueante(s).`,
     };
   }
@@ -233,12 +238,14 @@ function buildExecutiveSummary(response, stats, validators, allChecks) {
     const warningCountLabel = stats.warnings === 1 ? 'advertencia de estilo' : 'advertencias de estilo';
     return {
       actionRequired: `Corregir ${stats.warnings} ${warningCountLabel}`,
+      problemLocation: firstWarning ? `${firstWarning.check.group ?? 'General'} / ${firstWarning.check.id}` : 'General',
       summaryLine: `Cumple con advertencias: revisar ${warningLabel}.`,
     };
   }
 
   return {
-    actionRequired: 'Ninguna',
+    actionRequired: 'No aplica',
+    problemLocation: 'Ninguno',
     summaryLine: `El diseño cumple sin observaciones bloqueantes. ${validators.length} DSLs ejecutados y ${allChecks.length} reglas evaluadas.`,
   };
 }
