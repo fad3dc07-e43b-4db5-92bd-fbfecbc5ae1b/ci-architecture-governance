@@ -93,82 +93,84 @@ export const Engine = {
     const validators = response.validators ?? [];
     const allChecks = validators.flatMap((validator) => (validator.checks ?? []).map((check) => ({ validator, check })));
     const actionable = allChecks.filter(({ check }) => check.status !== 'PASS');
+    const ruleChecks = allChecks.map(({ check }) => check);
     const stats = collectStats(validators, allChecks);
+    const status = response.lintStatus ?? response.status ?? 'UNKNOWN';
     const executive = buildExecutiveSummary(response, stats, validators, allChecks);
-    const decision = decisionFromLintStatus(response.lintStatus ?? response.status ?? 'UNKNOWN');
     const artifactPath = response.artifact?.current
       ? toRelativePath(response.repoRoot, response.artifact.current)
       : (response.artifact?.source?.path ?? 'Unknown');
+    const globalScore = response.systemStatus === 'ERROR' ? null : calculateComplianceScore(ruleChecks);
+    const dslSummaries = validators.map((validator) => ({
+      validator,
+      counts: countChecks(validator.checks ?? []),
+      score: calculateComplianceScore(validator.checks ?? []),
+    }));
+    const headline = response.systemStatus === 'ERROR'
+      ? `${statusEmoji('ERROR')} No evaluable`
+      : `${statusEmoji(status)} Cumplimiento: ${formatScore(globalScore)} — ${decisionFromLintStatus(status)}`;
 
     lines.push('# Architecture Compliance Report');
     lines.push('');
-    lines.push('## Resultado ejecutivo');
+    lines.push(`## ${headline}`);
     lines.push('');
-    lines.push('| Indicador | Valor |');
-    lines.push('|---|---|');
-    lines.push(`| Resultado del diseño | ${statusBadge(response.lintStatus ?? response.status ?? 'UNKNOWN')} |`);
-    lines.push(`| Decisión | ${decision} |`);
-    lines.push(`| ¿Puedo continuar? | ${isMergeAllowed(response.lintStatus ?? response.status ?? 'UNKNOWN') ? 'Sí' : 'No'} |`);
-    lines.push(`| ¿Es bloqueante? | ${stats.failures > 0 ? 'Sí' : 'No'} |`);
-    lines.push(`| ¿Qué debo corregir? | ${escapeTableCell(executive.actionRequired)} |`);
-    lines.push(`| Errores bloqueantes | \`${stats.failures}\` |`);
-    lines.push(`| Advertencias | \`${stats.warnings}\` |`);
-    if (response.artifact?.source?.path) {
-      lines.push(`| Archivo evaluado | \`${escapeTableCell(artifactPath)}\` |`);
+
+    if (status === 'WARN') {
+      lines.push('> [!WARNING]');
+      lines.push(`> ${executive.summaryLine}`);
+    } else if (status === 'PASS') {
+      lines.push('> [!NOTE]');
+      lines.push(`> ${executive.summaryLine}`);
+    } else if (status === 'FAIL') {
+      lines.push('> [!CAUTION]');
+      lines.push(`> ${executive.summaryLine}`);
+    } else if (response.systemStatus === 'ERROR') {
+      lines.push(`> ⚫ ${executive.summaryLine}`);
     }
 
+    lines.push('');
+    lines.push('| Decisión | Merge permitido | Errores | Advertencias | Archivo |');
+    lines.push('|---|---:|---:|---:|---|');
+    lines.push(`| ${decisionFromLintStatus(status)} | ${isMergeAllowed(status) ? 'Sí' : 'No'} | \`${stats.failures}\` | \`${stats.warnings}\` | \`${escapeTableCell(artifactPath)}\` |`);
+
+    lines.push('');
+    lines.push('## Acción requerida');
     if (response.systemStatus === 'ERROR') {
       lines.push('');
-      lines.push(`> Error técnico: ${response.error ?? 'Unknown error'}`);
-    } else if (response.lintStatus === 'WARN') {
+      lines.push(`No se pudo evaluar el diseño: ${response.error ?? 'error técnico'}.`);
+    } else if (actionable.length === 0) {
       lines.push('');
-      lines.push(`> ${executive.summaryLine}`);
-    } else if (response.lintStatus === 'PASS') {
-      lines.push('');
-      lines.push(`> ${executive.summaryLine}`);
-    }
-
-    lines.push('');
-    lines.push('## Hallazgos accionables');
-    if (actionable.length === 0) {
-      lines.push('');
-      lines.push('No hay hallazgos que requieran atención.');
+      lines.push('No hay acciones requeridas.');
     } else {
       lines.push('');
-      for (const { validator, check } of actionable) {
+      lines.push('| Estado | Ubicación | Elemento | Corrección |');
+      lines.push('|---|---|---|---|');
+      for (const { check } of actionable) {
         const location = check.group ?? 'General';
         const element = escapeTableCell(check.detail ?? check.message ?? '');
         const suggestion = escapeTableCell(suggestAction(check));
-        lines.push(`### ${statusBadge(check.status)} ${escapeTableCell(check.id)}`);
-        lines.push('');
-        lines.push('| Campo | Valor |');
-        lines.push('|---|---|');
-        lines.push(`| DSL | ${escapeTableCell(validator.title ?? validator.id ?? 'DSL')} |`);
-        lines.push(`| Ubicación | ${escapeTableCell(location)} |`);
-        lines.push(`| Elemento | ${element} |`);
-        lines.push(`| Problema | ${escapeTableCell(check.message ?? check.detail ?? 'Revisar el hallazgo reportado.')} |`);
-        lines.push(`| Acción sugerida | ${suggestion} |`);
-        lines.push('');
+        lines.push(`| ${statusVisual(check.status)} | ${escapeTableCell(location)} | ${element} | ${suggestion} |`);
       }
     }
 
     lines.push('');
     lines.push('## Resumen por DSL');
     lines.push('');
-    lines.push('| DSL | Estado | Reglas | PASS | WARN | FAIL |');
+    lines.push('| DSL | Estado | Score | PASS | WARN | FAIL |');
     lines.push('|---|---|---:|---:|---:|---:|');
-    for (const validator of validators) {
-      const counts = countChecks(validator.checks ?? []);
-      const total = counts.PASS + counts.WARN + counts.FAIL + counts.ERROR;
-      lines.push(`| ${escapeTableCell(validator.title ?? validator.id ?? 'DSL')} | ${statusBadge(validator.status ?? 'UNKNOWN')} | \`${total}\` | \`${counts.PASS}\` | \`${counts.WARN}\` | \`${counts.FAIL}\` |`);
+    for (const { validator, counts, score } of dslSummaries) {
+      lines.push(`| ${escapeTableCell(validator.title ?? validator.id ?? 'DSL')} | ${statusVisual(validator.status ?? 'UNKNOWN')} | ${formatScore(score)} | \`${counts.PASS}\` | \`${counts.WARN}\` | \`${counts.FAIL}\` |`);
     }
 
     lines.push('');
-    lines.push('## Información de ejecución');
+    lines.push('<details>');
+    lines.push('<summary>Ver evidencia técnica completa</summary>');
+    lines.push('');
+    lines.push('### Información de ejecución');
     lines.push('');
     lines.push('| Indicador | Valor |');
     lines.push('|---|---|');
-    lines.push(`| Estado técnico | ${statusBadge(response.systemStatus ?? 'UNKNOWN')} |`);
+    lines.push(`| Estado técnico | ${statusVisual(response.systemStatus ?? 'UNKNOWN')} |`);
     lines.push(`| Manifiesto | \`${escapeTableCell(response.manifest ?? '')}\` |`);
     lines.push(`| Patrón fuente | \`${escapeTableCell(response.artifact?.source?.path ?? 'Unknown')}\` |`);
     lines.push(`| Artefacto evaluado | \`${escapeTableCell(artifactPath)}\` |`);
@@ -178,25 +180,23 @@ export const Engine = {
     lines.push('');
     lines.push('> Las advertencias de plataforma o runner se muestran separadas del resultado de compliance.');
     lines.push('');
-    lines.push('<details>');
-    lines.push('<summary>Evidencia técnica completa</summary>');
-    lines.push('');
 
     for (const validator of validators) {
       const counts = countChecks(validator.checks ?? []);
+      const total = counts.PASS + counts.WARN + counts.FAIL + counts.ERROR;
       lines.push(`### ${validator.title ?? validator.id ?? 'DSL'}`);
       if (validator.description) {
         lines.push(validator.description);
       }
       lines.push('');
-      lines.push(`\`${validator.status ?? 'UNKNOWN'}\` - ${counts.PASS}/${counts.PASS + counts.WARN + counts.FAIL + counts.ERROR} reglas OK`);
+      lines.push(`**Estado:** ${statusVisual(validator.status ?? 'UNKNOWN')} | **Score:** ${formatScore(calculateComplianceScore(validator.checks ?? []))} | **Reglas OK:** ${counts.PASS}/${total}`);
       lines.push('');
       lines.push('| Grupo | Regla | Estado | Detalle |');
       lines.push('|---|---|---|---|');
       for (const [group, checks] of Object.entries(groupChecks(validator.checks ?? []))) {
         for (const check of checks) {
           const detail = check.detail === undefined ? '' : String(check.detail);
-          lines.push(`| ${escapeTableCell(group)} | ${escapeTableCell(check.id)} | ${statusBadge(check.status ?? 'UNKNOWN')} | ${escapeTableCell(detail)} |`);
+          lines.push(`| ${escapeTableCell(group)} | ${escapeTableCell(check.id)} | ${statusVisual(check.status ?? 'UNKNOWN')} | ${escapeTableCell(detail)} |`);
         }
       }
       lines.push('');
@@ -244,7 +244,7 @@ function buildExecutiveSummary(response, stats, validators, allChecks) {
     const warningCountLabel = stats.warnings === 1 ? 'advertencia de estilo' : 'advertencias de estilo';
     return {
       actionRequired: `Corregir ${stats.warnings} ${warningCountLabel}`,
-      summaryLine: `Cumple con advertencias: revisar ${warningLabel}.`,
+      summaryLine: `El diseño puede continuar. Revisar ${warningLabel}.`,
     };
   }
 
@@ -276,8 +276,33 @@ function isMergeAllowed(status) {
   return status === 'PASS' || status === 'WARN';
 }
 
-function statusBadge(status) {
-  return `\`${status ?? 'UNKNOWN'}\``;
+function calculateComplianceScore(checks) {
+  let score = 10;
+
+  for (const check of checks) {
+    if (check.status === 'FAIL') {
+      score -= 4;
+    } else if (check.status === 'WARN') {
+      score -= 1;
+    }
+  }
+
+  return Math.max(0, score);
+}
+
+function formatScore(score) {
+  return `${score}/10`;
+}
+
+function statusEmoji(status) {
+  if (status === 'PASS') return '🟢';
+  if (status === 'WARN') return '🟡';
+  if (status === 'FAIL') return '🔴';
+  return '⚫';
+}
+
+function statusVisual(status) {
+  return `${statusEmoji(status)} \`${status ?? 'UNKNOWN'}\``;
 }
 
 function escapeTableCell(value) {
