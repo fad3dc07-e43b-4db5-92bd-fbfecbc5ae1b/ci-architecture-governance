@@ -6,6 +6,7 @@ import { isFile, readText } from './infra/fs.mjs';
 import { loadYamlFile } from './infra/yaml.mjs';
 import { extractXmlRootName, selectXmlNodes } from './infra/xml.mjs';
 import { validateDslData, validateManifestData } from './core/schemas.mjs';
+import { renderDesignSummary } from './summary.mjs';
 
 export const Engine = {
   version: '2.0.0',
@@ -89,37 +90,7 @@ export const Engine = {
   },
 
   async renderSummary(response) {
-    if (response.systemStatus === 'ERROR') {
-      return `${renderSystemErrorSummary(response).join('\n').trimEnd()}\n`;
-    }
-
-    const validators = response.validators ?? [];
-    const checks = flattenChecks(validators);
-    const passChecks = checks.filter((check) => check.status === 'PASS');
-    const warnChecks = checks.filter((check) => check.status === 'WARN');
-    const failChecks = checks.filter((check) => check.status === 'FAIL');
-    const score = calculateComplianceScore(checks);
-    const rulesEvaluated = checks.length;
-    const dslCount = validators.length;
-    const statusCounts = countChecks(checks);
-    const dashboard = await renderDashboardSectionFinal({
-      validators,
-      score,
-      passCount: statusCounts.PASS,
-      warnCount: statusCounts.WARN,
-      failCount: statusCounts.FAIL,
-      rulesEvaluated,
-      dslCount,
-      resultLabel: getResultLabel({ failCount: failChecks.length, warnCount: warnChecks.length, systemError: false }),
-    });
-
-    return `${[
-      ...dashboard.lines,
-      ...renderWarningPanelFinal(warnChecks),
-      ...renderCautionPanelFinal(failChecks),
-      ...renderTipPanelFinal(validators, passChecks),
-      ...dashboard.systemIssueLines,
-    ].join('\n').trimEnd()}\n`;
+    return renderDesignSummary(response);
   },
 };
 
