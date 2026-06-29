@@ -140,7 +140,7 @@ function buildComplianceChartConfig({ passCount, warnCount, failCount, totalRule
   const safeTotal = Math.max(0, Number(totalRules) || 0);
   const safePass = Math.max(0, Math.min(safeTotal, Number(passCount) || 0));
   const remaining = Math.max(0, safeTotal - safePass);
-  const scoreColorHex = getScoreColor({ failCount, warnCount, totalRules: safeTotal });
+  const remainingColor = getScoreColor({ failCount, warnCount, totalRules: safeTotal });
 
   return {
     type: 'doughnut',
@@ -149,7 +149,7 @@ function buildComplianceChartConfig({ passCount, warnCount, failCount, totalRule
       datasets: [
         {
           data: [safePass, remaining],
-          backgroundColor: [scoreColorHex, '#e5e7eb'],
+          backgroundColor: ['#22c55e', remaining > 0 ? remainingColor : '#e5e7eb'],
           borderWidth: 0,
         },
       ],
