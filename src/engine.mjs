@@ -514,21 +514,11 @@ function renderWarningPanelFinal(warnChecks) {
     return [];
   }
 
-  const lines = [
-    '> [!WARNING]',
-    `> **${warnChecks.length} ${pluralize(warnChecks.length, 'observación', 'observaciones')} ${warnChecks.length === 1 ? 'requiere' : 'requieren'} revisión**`,
-    '>',
-  ];
-
-  warnChecks.forEach((check, index) => {
-    lines.push(...renderIssuePanelEntryFinal(check, 'Elemento', 'Problema', 'Recomendación'));
-    if (index < warnChecks.length - 1) {
-      lines.push('>');
-    }
+  return renderHtmlAlertPanel({
+    accent: '#b7791f',
+    title: `${warnChecks.length} ${pluralize(warnChecks.length, 'observación', 'observaciones')} ${warnChecks.length === 1 ? 'requiere' : 'requieren'} revisión`,
+    body: warnChecks.map((check) => renderHtmlIssue(check, 'Elemento', 'Problema', 'Recomendación')).join('<br><br>'),
   });
-
-  lines.push('');
-  return lines;
 }
 
 function renderCautionPanelFinal(failChecks) {
@@ -536,21 +526,11 @@ function renderCautionPanelFinal(failChecks) {
     return [];
   }
 
-  const lines = [
-    '> [!CAUTION]',
-    `> **${failChecks.length} ${pluralize(failChecks.length, 'regla bloqueante incumplida', 'reglas bloqueantes incumplidas')}**`,
-    '>',
-  ];
-
-  failChecks.forEach((check, index) => {
-    lines.push(...renderIssuePanelEntryFinal(check, 'Elemento', 'Problema', 'Recomendación'));
-    if (index < failChecks.length - 1) {
-      lines.push('>');
-    }
+  return renderHtmlAlertPanel({
+    accent: '#d1242f',
+    title: `${failChecks.length} ${pluralize(failChecks.length, 'regla bloqueante incumplida', 'reglas bloqueantes incumplidas')}`,
+    body: failChecks.map((check) => renderHtmlIssue(check, 'Elemento', 'Problema', 'Recomendación')).join('<br><br>'),
   });
-
-  lines.push('');
-  return lines;
 }
 
 function renderTipPanelFinal(validators, passChecks) {
@@ -558,14 +538,7 @@ function renderTipPanelFinal(validators, passChecks) {
     return [];
   }
 
-  const lines = [
-    '> [!TIP]',
-    `> **${passChecks.length} ${pluralize(passChecks.length, 'regla cumplida', 'reglas cumplidas')}**`,
-    '>',
-    '> <details>',
-    '> <summary>Ver reglas cumplidas</summary>',
-    '>',
-  ];
+  const sections = [];
 
   for (const validator of validators) {
     const validatorPasses = (validator.checks ?? []).filter((check) => check.status === 'PASS');
@@ -573,18 +546,18 @@ function renderTipPanelFinal(validators, passChecks) {
       continue;
     }
 
-    lines.push(`> ### ${validator.title ?? validator.id ?? 'Reglas'}`);
-    lines.push('>');
-
+    sections.push(`<strong>${escapeHtml(validator.title ?? validator.id ?? 'Reglas')}</strong><br>`);
     for (const check of validatorPasses) {
-      lines.push(`> - \`${escapeInlineCode(check.id)}\` — ${formatPassDescription(check.description ?? check.detail ?? 'Cumple.')}`);
+      sections.push(`- <code>${escapeHtml(check.id)}</code> — ${escapeHtml(formatPassDescription(check.description ?? check.detail ?? 'Cumple.'))}<br>`);
     }
-
-    lines.push('>');
+    sections.push('<br>');
   }
 
-  lines.push('> </details>', '');
-  return lines;
+  return renderHtmlAlertPanel({
+    accent: '#1f883d',
+    title: `${passChecks.length} ${pluralize(passChecks.length, 'regla cumplida', 'reglas cumplidas')}`,
+    body: [`<details><summary>Ver reglas cumplidas</summary><br>${sections.join('')}</details>`].join(''),
+  });
 }
 
 function renderIssuePanelEntryFinal(check, elementLabel, problemLabel, recommendationLabel) {
@@ -600,6 +573,38 @@ function renderIssuePanelEntryFinal(check, elementLabel, problemLabel, recommend
   lines.push(`> **${recommendationLabel}:** ${normalizeInlineText(suggestAction(check))}`);
 
   return lines;
+}
+
+function renderHtmlAlertPanel({ accent, title, body }) {
+  return [
+    '<table>',
+    '  <tr>',
+    `    <td style="width:6px; background:${accent};">&nbsp;</td>`,
+    '    <td>',
+    `      <strong>${escapeHtml(title)}</strong><br><br>`,
+    `      ${body}`,
+    '    </td>',
+    '  </tr>',
+    '</table>',
+    '',
+  ];
+}
+
+function renderHtmlIssue(check, elementLabel, problemLabel, recommendationLabel) {
+  const lines = [
+    `<strong>Regla:</strong> <code>${escapeHtml(check.id)}</code>`,
+    `<strong>Ubicación:</strong> <code>${escapeHtml(check.group ?? 'General')}</code>`,
+  ];
+
+  const element = getMeaningfulDetail(check.detail);
+  if (element) {
+    lines.push(`<strong>${escapeHtml(elementLabel)}:</strong> <code>${escapeHtml(element)}</code>`);
+  }
+
+  lines.push(`<strong>${escapeHtml(problemLabel)}:</strong> ${escapeHtml(normalizeInlineText(check.message ?? 'Revisar el hallazgo reportado.'))}`);
+  lines.push(`<strong>${escapeHtml(recommendationLabel)}:</strong> ${escapeHtml(normalizeInlineText(suggestAction(check)))}`);
+
+  return lines.join('<br>');
 }
 
 function groupChecksByValidator(validators) {
@@ -866,6 +871,15 @@ function renderQuotedTable(rows) {
 
 function escapeInlineCode(value) {
   return String(value ?? '').replace(/`/g, '\\`').trim();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function escapeMarkdownText(value) {
