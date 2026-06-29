@@ -8,16 +8,18 @@ export async function renderDesignSummary(response) {
   const passChecks = checks.filter((check) => check.status === 'PASS');
   const warnChecks = checks.filter((check) => check.status === 'WARN');
   const failChecks = checks.filter((check) => check.status === 'FAIL');
-  const score = calculateComplianceScore(checks);
   const rulesEvaluated = checks.length;
   const dslCount = validators.length;
   const statusCounts = countChecks(checks);
+  const totalRules = statusCounts.PASS + statusCounts.WARN + statusCounts.FAIL;
+  const complianceText = formatRatio(statusCounts.PASS, totalRules);
   const dashboard = await renderDashboardSectionFinal({
     validators,
-    score,
+    complianceText,
     passCount: statusCounts.PASS,
     warnCount: statusCounts.WARN,
     failCount: statusCounts.FAIL,
+    totalRules,
     rulesEvaluated,
     dslCount,
     resultLabel: getResultLabel({ failCount: failChecks.length, warnCount: warnChecks.length, systemError: false }),
@@ -51,20 +53,6 @@ function flattenChecks(validators) {
   })));
 }
 
-function calculateComplianceScore(checks) {
-  let score = 10;
-
-  for (const check of checks) {
-    if (check.status === 'FAIL') {
-      score -= 4;
-    } else if (check.status === 'WARN') {
-      score -= 1;
-    }
-  }
-
-  return Math.max(0, score);
-}
-
 function getResultLabel({ failCount, warnCount, systemError }) {
   if (systemError) {
     return '⚫ NO EVALUABLE';
@@ -81,12 +69,11 @@ function getResultLabel({ failCount, warnCount, systemError }) {
   return '✅ APROBADO';
 }
 
-async function renderDashboardSectionFinal({ validators, score, passCount, warnCount, failCount, rulesEvaluated, dslCount, resultLabel }) {
+async function renderDashboardSectionFinal({ validators, complianceText, passCount, warnCount, failCount, totalRules, rulesEvaluated, dslCount, resultLabel }) {
   try {
     const dimensions = buildDimensionSummaries(validators);
-    const worstDimension = [...dimensions].sort((left, right) => left.score - right.score)[0] ?? { label: 'N/A', score: 0 };
     const [complianceUrl, distributionUrl, dimensionsUrl] = await Promise.all([
-      createQuickChartUrl(buildComplianceChartConfig({ score, failCount, warnCount }), { width: 220, height: 160 }),
+      createQuickChartUrl(buildComplianceChartConfig({ passCount, warnCount, failCount, totalRules }), { width: 220, height: 160 }),
       createQuickChartUrl(buildDistributionChartConfig({ passCount, warnCount, failCount }), { width: 260, height: 160 }),
       createQuickChartUrl(buildDimensionsChartConfig(dimensions), { width: 300, height: 160 }),
     ]);
@@ -124,7 +111,7 @@ async function renderDashboardSectionFinal({ validators, score, passCount, warnC
         '    <tr>',
         '      <td colspan="3">',
         '```text',
-        `Cumplimiento: ${formatScore(score)}`,
+        `Cumplimiento: ${complianceText}`,
         `Resultado: ${resultLabel}`,
         `PASS: ${formatCount(passCount)} · WARN: ${formatCount(warnCount)} · FAIL: ${formatCount(failCount)}`,
         `Reglas evaluadas: ${formatCount(rulesEvaluated)} · DSLs: ${formatCount(dslCount)}`,
@@ -149,10 +136,11 @@ async function renderDashboardSectionFinal({ validators, score, passCount, warnC
   }
 }
 
-function buildComplianceChartConfig({ score, failCount, warnCount }) {
-  const safeScore = Math.max(0, Math.min(10, Number(score) || 0));
-  const remaining = Math.max(0, 10 - safeScore);
-  const scoreColorHex = getScoreColor(safeScore, failCount, warnCount);
+function buildComplianceChartConfig({ passCount, warnCount, failCount, totalRules }) {
+  const safeTotal = Math.max(0, Number(totalRules) || 0);
+  const safePass = Math.max(0, Math.min(safeTotal, Number(passCount) || 0));
+  const remaining = Math.max(0, safeTotal - safePass);
+  const scoreColorHex = getScoreColor({ failCount, warnCount, totalRules: safeTotal });
 
   return {
     type: 'doughnut',
@@ -160,7 +148,7 @@ function buildComplianceChartConfig({ score, failCount, warnCount }) {
       labels: ['Cumplimiento', 'Pendiente'],
       datasets: [
         {
-          data: [safeScore, remaining],
+          data: [safePass, remaining],
           backgroundColor: [scoreColorHex, '#e5e7eb'],
           borderWidth: 0,
         },
@@ -172,7 +160,7 @@ function buildComplianceChartConfig({ score, failCount, warnCount }) {
         legend: { display: false },
         title: {
           display: true,
-          text: `Cumplimiento ${formatScore(safeScore)}`,
+          text: `Cumplimiento ${formatRatio(safePass, safeTotal)}`,
           font: { size: 13 },
         },
       },
@@ -292,12 +280,28 @@ function buildDimensionSummaries(validators) {
       passCount,
       warnCount,
       failCount,
-      color: getScoreColor(score, failCount, warnCount),
+      color: getDimensionColor(score, failCount, warnCount),
     };
   });
 }
 
-function getScoreColor(score, failCount, warnCount) {
+function getScoreColor({ failCount, warnCount, totalRules }) {
+  if (totalRules === 0) {
+    return '#9ca3af';
+  }
+
+  if (failCount > 0) {
+    return '#ef4444';
+  }
+
+  if (warnCount > 0) {
+    return '#f59e0b';
+  }
+
+  return '#22c55e';
+}
+
+function getDimensionColor(score, failCount, warnCount) {
   if (failCount > 0) {
     return '#ef4444';
   }
@@ -307,6 +311,12 @@ function getScoreColor(score, failCount, warnCount) {
   }
 
   return '#22c55e';
+}
+
+function formatRatio(value, total) {
+  const safeValue = Math.max(0, Number(value) || 0);
+  const safeTotal = Math.max(0, Number(total) || 0);
+  return `${String(safeValue).padStart(2, '0')}/${String(safeTotal).padStart(2, '0')}`;
 }
 
 async function createQuickChartUrl(chartConfig, { width = 500, height = 300 } = {}) {
