@@ -114,8 +114,6 @@ export const Engine = {
     });
 
     return `${[
-      '# Calidad del diseño',
-      '',
       ...dashboard.lines,
       ...renderWarningPanelFinal(warnChecks),
       ...renderCautionPanelFinal(failChecks),
@@ -193,7 +191,20 @@ async function renderDashboardSectionFinal({ validators, score, passCount, warnC
 
     return {
       lines: [
-        `| <img src="${complianceUrl}" width="220" height="160" alt="Cumplimiento general"> | <img src="${distributionUrl}" width="260" height="160" alt="Distribución de resultados"> | <img src="${dimensionsUrl}" width="300" height="160" alt="Calidad por dimensión"> |`,
+        '<table>',
+        '  <thead>',
+        '    <tr>',
+        '      <th colspan="3" align="left">Calidad del diseño</th>',
+        '    </tr>',
+        '  </thead>',
+        '  <tbody>',
+        '    <tr>',
+        `      <td><img src="${complianceUrl}" width="220" height="160" alt="Cumplimiento general"></td>`,
+        `      <td><img src="${distributionUrl}" width="260" height="160" alt="Distribución de resultados"></td>`,
+        `      <td><img src="${dimensionsUrl}" width="300" height="160" alt="Calidad por dimensión"></td>`,
+        '    </tr>',
+        '  </tbody>',
+        '</table>',
         '',
       ],
       systemIssueLines: [],
@@ -201,12 +212,25 @@ async function renderDashboardSectionFinal({ validators, score, passCount, warnC
   } catch (error) {
     return {
       lines: [
+        '<table>',
+        '  <thead>',
+        '    <tr>',
+        '      <th colspan="3" align="left">Calidad del diseño</th>',
+        '    </tr>',
+        '  </thead>',
+        '  <tbody>',
+        '    <tr>',
+        '      <td colspan="3">',
         '```text',
         `Cumplimiento: ${formatScore(score)}`,
         `Resultado: ${resultLabel}`,
         `PASS: ${formatCount(passCount)} · WARN: ${formatCount(warnCount)} · FAIL: ${formatCount(failCount)}`,
         `Reglas evaluadas: ${formatCount(rulesEvaluated)} · DSLs: ${formatCount(dslCount)}`,
         '```',
+        '      </td>',
+        '    </tr>',
+        '  </tbody>',
+        '</table>',
         '',
       ],
       systemIssueLines: [
