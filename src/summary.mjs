@@ -664,7 +664,7 @@ async function renderSummaryMarkdownV03(summary) {
   const lines = [''];
 
   lines.push('## Reporte de Cumplimiento');
-  lines.push('**ContinuousArchitecture/CALinter**');
+  lines.push(`**${normalizeInlineText(summary?.repositoryDisplayName ?? 'CALinter')}**`);
   lines.push('');
 
   const resultChart = await createQuickChartUrl(buildResultChartConfig(summary), { width: 320, height: 240 });

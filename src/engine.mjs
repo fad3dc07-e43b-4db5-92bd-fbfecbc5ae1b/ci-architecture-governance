@@ -69,12 +69,14 @@ function buildReportResponse(repoRoot, reports) {
   const validators = buildValidatorsFromReports(reports);
   const checks = flattenChecks(validators);
   const summary = countChecks(checks);
+  const repositoryDisplayName = getRepositoryDisplayName(repoRoot);
   const lintStatus = reports.qualityScore?.status === 'incomplete'
     ? 'INCOMPLETE'
     : (summary.FAIL > 0 ? 'FAIL' : (summary.WARN > 0 ? 'WARN' : 'PASS'));
 
   return {
     repoRoot,
+    repositoryDisplayName,
     status: lintStatus,
     systemStatus: 'PASS',
     lintStatus,
@@ -82,6 +84,15 @@ function buildReportResponse(repoRoot, reports) {
     validators,
     reports,
   };
+}
+
+function getRepositoryDisplayName(repoRoot) {
+  const workflowRepo = String(process.env.GITHUB_REPOSITORY ?? '').trim();
+  if (workflowRepo) {
+    return workflowRepo.split('/').pop() ?? workflowRepo;
+  }
+
+  return path.basename(repoRoot);
 }
 
 function buildValidatorsFromReports(reports) {
