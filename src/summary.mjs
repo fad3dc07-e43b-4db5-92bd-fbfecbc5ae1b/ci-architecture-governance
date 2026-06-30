@@ -569,7 +569,7 @@ async function renderSummaryMarkdownV03(summary) {
   lines.push('');
   lines.push(`<img src="${resultChart}" width="260" />`);
   lines.push('');
-  lines.push(`<strong>Resultado</strong><br/>${summary.generalState} · ${summary.scoreLabel}<br/>Contrato ${summary.contractOk ? 'OK' : 'ERROR'}`);
+  lines.push(`<strong>${String(summary.scoreLabel).replace(/ \(parcial\)$/, '')}</strong>`);
   lines.push('');
   lines.push('</td>');
   lines.push('<td width="33%" align="center">');
