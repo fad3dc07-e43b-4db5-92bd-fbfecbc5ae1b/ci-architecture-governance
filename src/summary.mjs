@@ -3,16 +3,34 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadYamlFile } from './infra/yaml.mjs';
 
+const ARCHIMATE_TREE_SECTIONS = [
+  'Strategy',
+  'Business',
+  'Application',
+  'Technology & Physical',
+  'Motivation',
+  'Implementation & Migration',
+  'Other',
+  'Relations',
+  'Views',
+];
+
+const ARCHIMATE_AUX_SECTIONS = ['Model Integrity', 'General'];
+
 export async function renderDesignSummary(response) {
   if (response.systemStatus === 'ERROR') {
     return `${renderSystemErrorSummary(response).join('\n').trimEnd()}\n`;
   }
 
-  const summary = buildSummaryModelFromReports(response.reports ?? {}, response.status);
+  const summary = buildSummaryModelFromReports({
+    repoRoot: response.repoRoot,
+    reports: response.reports ?? {},
+    reportStatus: response.status,
+  });
   return `${await renderSummaryMarkdownV03(summary)}\n`;
 }
 
-function buildSummaryModelFromReports(reports, reportStatus) {
+function buildSummaryModelFromReports({ repoRoot, reports, reportStatus } = {}) {
   const qualityScore = reports?.qualityScore ?? {};
   const quickchart = reports?.quickchart ?? {};
   const ruleResults = Array.isArray(reports?.ruleResults)
@@ -20,6 +38,8 @@ function buildSummaryModelFromReports(reports, reportStatus) {
     : Array.isArray(reports?.rules)
       ? reports.rules
       : [];
+  const catalog = loadSummaryCatalog(repoRoot);
+  const catalogIndexes = buildCatalogIndexes(catalog);
 
   const ruleMap = new Map(ruleResults.map((rule) => [rule.ruleId, rule]));
   const businessRules = ruleResults.filter((rule) => rule.ruleId !== 'contract_consistency_check');
@@ -40,6 +60,7 @@ function buildSummaryModelFromReports(reports, reportStatus) {
     : `${qualityScore.overallScore}/100${partial ? ' (parcial)' : ''}`;
 
   return {
+    repoRoot,
     qualityScore,
     quickchart,
     ruleResults: businessRules,
@@ -54,6 +75,11 @@ function buildSummaryModelFromReports(reports, reportStatus) {
     scoreLabel,
     omittedDimensions,
     radarTrusted: contractOk,
+    catalog,
+    catalogIndexes,
+    sectionRules: buildRulesBySection(businessRules, catalogIndexes),
+    treeSections: ARCHIMATE_TREE_SECTIONS,
+    auxSections: ARCHIMATE_AUX_SECTIONS,
     quickchartConfig: quickchart?.type && quickchart?.data && quickchart?.options
       ? {
         type: quickchart.type,
@@ -153,6 +179,378 @@ function buildContractIssues(contractRule, quickchartIssues) {
   return issues;
 }
 
+function loadSummaryCatalog(repoRoot) {
+  if (!repoRoot) {
+    return null;
+  }
+
+  const catalogPath = path.join(repoRoot, 'reports', 'catalog.json');
+  return readJsonFileIfExists(catalogPath);
+}
+
+function buildCatalogIndexes(catalog) {
+  const folders = new Map((catalog?.folders ?? []).map((folder) => [folder.id, folder]));
+  const elements = new Map((catalog?.elements ?? []).map((element) => [element.id, element]));
+  const views = new Map((catalog?.views ?? []).map((view) => [view.id, view]));
+  const relationships = new Map((catalog?.relationships ?? []).map((relationship) => [relationship.id, relationship]));
+
+  return {
+    folders,
+    elements,
+    views,
+    relationships,
+  };
+}
+
+function buildRulesBySection(rules, catalogIndexes) {
+  const sections = new Map([...ARCHIMATE_TREE_SECTIONS, ...ARCHIMATE_AUX_SECTIONS].map((section) => [section, []]));
+
+  for (const rule of rules) {
+    const section = resolveRuleSection(rule, catalogIndexes);
+    if (!sections.has(section)) {
+      sections.set(section, []);
+    }
+
+    sections.get(section).push(rule);
+  }
+
+  for (const rulesInSection of sections.values()) {
+    rulesInSection.sort(sortVisibleRulesForReport);
+  }
+
+  return sections;
+}
+
+function resolveRuleSection(rule, catalogIndexes) {
+  const ruleId = String(rule?.ruleId ?? '');
+  if (ruleId === 'abuso_association_regla') {
+    return 'Relations';
+  }
+
+  if (ruleId === 'contract_consistency_check') {
+    return 'Errores del sistema';
+  }
+
+  const collectedSections = collectRuleSections(rule, catalogIndexes);
+
+  if (['Estructura', 'Integridad', 'Trazabilidad', 'Gobierno'].includes(String(rule.dimension ?? ''))) {
+    return 'Model Integrity';
+  }
+
+  if (ruleId.startsWith('vistas_')) {
+    return 'Views';
+  }
+
+  if (rule.dimension === 'Relaciones' || collectedSections.has('Relations')) {
+    return 'Relations';
+  }
+
+  if (collectedSections.has('Views')) {
+    return 'Views';
+  }
+
+  if (rule.dimension === 'Nomenclatura') {
+    return collectedSections.size === 1 ? [...collectedSections][0] : 'General';
+  }
+
+  if (collectedSections.size === 1) {
+    return [...collectedSections][0];
+  }
+
+  if (collectedSections.size > 1) {
+    return 'General';
+  }
+
+  return 'General';
+}
+
+function collectRuleSections(rule, catalogIndexes) {
+  const sections = new Set();
+  const addSectionForRecord = (collection, recordId) => {
+    const section = resolveRecordSection(collection, recordId, catalogIndexes);
+    if (section) {
+      sections.add(section);
+    }
+  };
+
+  for (const finding of rule?.findings ?? []) {
+    addSectionForRecord(finding?.collection, finding?.recordId);
+  }
+
+  for (const evidence of rule?.evidence ?? []) {
+    for (const recordId of evidence?.recordIds ?? []) {
+      addSectionForRecord(evidence?.collection, recordId);
+    }
+  }
+
+  return sections;
+}
+
+function resolveRecordSection(collection, recordId, catalogIndexes) {
+  if (!collection || !recordId) {
+    return null;
+  }
+
+  if (collection === 'views') {
+    return 'Views';
+  }
+
+  if (collection === 'relationships') {
+    return 'Relations';
+  }
+
+  if (collection === 'folders') {
+    const folder = catalogIndexes?.folders?.get(recordId);
+    return folder ? resolveFolderSection(folder, catalogIndexes) : null;
+  }
+
+  if (collection === 'elements') {
+    const element = catalogIndexes?.elements?.get(recordId);
+    if (!element) {
+      return null;
+    }
+
+    const folder = catalogIndexes?.folders?.get(element.folderId);
+    return folder ? resolveFolderSection(folder, catalogIndexes) : element.folderName ?? null;
+  }
+
+  return null;
+}
+
+function resolveFolderSection(folder, catalogIndexes) {
+  if (!folder) {
+    return null;
+  }
+
+  if (!folder.parentId) {
+    return folder.name ?? null;
+  }
+
+  const parent = catalogIndexes?.folders?.get(folder.parentId);
+  return parent ? resolveFolderSection(parent, catalogIndexes) : folder.parentName ?? folder.name ?? null;
+}
+
+function sortVisibleRulesForReport(left, right) {
+  const order = new Map([
+    ['fail', 0],
+    ['warning', 1],
+    ['pass', 2],
+    ['notimplemented', 3],
+    ['incomplete', 3],
+  ]);
+
+  const leftOrder = order.get(String(left.status ?? '').toLowerCase()) ?? 99;
+  const rightOrder = order.get(String(right.status ?? '').toLowerCase()) ?? 99;
+  if (leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+
+  return String(left.ruleId ?? '').localeCompare(String(right.ruleId ?? ''));
+}
+
+function getVisibleRuleStatus(rule) {
+  const value = String(rule?.status ?? '').toLowerCase();
+  if (value === 'pass') return 'PASS';
+  if (value === 'warning') return 'WARN';
+  if (value === 'fail') return 'FAIL';
+  if (value === 'notimplemented' || value === 'incomplete') return 'FAIL';
+  return 'FAIL';
+}
+
+function getVisibleAlertKind(status) {
+  if (status === 'PASS') return 'TIP';
+  if (status === 'WARN') return 'WARNING';
+  return 'CAUTION';
+}
+
+function getRuleSummaryMessage(rule) {
+  if (String(rule?.status ?? '').toLowerCase() === 'pass') {
+    return 'Cumple.';
+  }
+
+  return getFailureMessage(rule) !== 'n/a'
+    ? getFailureMessage(rule)
+    : (rule?.message ?? rule?.reason ?? 'Revisar el hallazgo reportado.');
+}
+
+function getRuleActionMessage(rule) {
+  const status = String(rule?.status ?? '').toLowerCase();
+  if (status === 'pass') {
+    return 'Sin acción.';
+  }
+
+  if (status === 'notimplemented' || status === 'incomplete') {
+    return 'Revisar el soporte del motor para esta regla.';
+  }
+
+  if (status === 'warning') {
+    if (/may[uú]scula/i.test(String(rule?.message ?? ''))) {
+      return 'Renombrar el elemento para que inicie con mayúscula.';
+    }
+
+    return 'Revisar la convención y ajustar el elemento.';
+  }
+
+  return 'Corregir el hallazgo para que la regla cumpla.';
+}
+
+function renderValidationMapSection(summary) {
+  const lines = ['```text', 'ArchiMate Model'];
+
+  summary.treeSections.forEach((section, index) => {
+    const branch = index === summary.treeSections.length - 1 ? '└─' : '├─';
+    const padding = index === summary.treeSections.length - 1 ? '   ' : '│  ';
+    const rules = summary.sectionRules.get(section) ?? [];
+
+    lines.push(`${branch} ${section}`);
+
+    if (rules.length === 0) {
+      lines.push(`${padding}Sin reglas aplicadas`);
+      return;
+    }
+
+    for (const rule of rules) {
+      lines.push(`${padding}${getVisibleRuleStatus(rule)} · \`${escapeInlineCode(rule.ruleId)}\``);
+    }
+  });
+
+  lines.push('```');
+  return lines;
+}
+
+function renderSupplementalSectionMap(summary, sectionName) {
+  const rules = summary.sectionRules.get(sectionName) ?? [];
+  const lines = [`### ${sectionName}`, ''];
+
+  if (rules.length === 0) {
+    lines.push('Sin reglas aplicadas.');
+    return lines;
+  }
+
+  for (const rule of rules) {
+    lines.push(`- ${getVisibleRuleStatus(rule)} · \`${escapeInlineCode(rule.ruleId)}\``);
+  }
+
+  return lines;
+}
+
+function renderRuleAlert(rule, catalogIndexes) {
+  const status = getVisibleRuleStatus(rule);
+  const kind = getVisibleAlertKind(status);
+  const lines = [
+    `> [!${kind}]`,
+    `> **${status} · \`${escapeInlineCode(rule.ruleId)}\`**`,
+    `> **Dimensión:** ${normalizeInlineText(rule.dimension ?? 'General')}`,
+    '>',
+    `> ${normalizeInlineText(getRuleSummaryMessage(rule))}`,
+    '>',
+    `> **Acción:** ${normalizeInlineText(getRuleActionMessage(rule))}`,
+  ];
+
+  if (status === 'PASS') {
+    return lines;
+  }
+
+  const findings = Array.isArray(rule.findings) ? rule.findings : [];
+  lines.push('>', '> <details>', '> <summary>Cómo se resuelve</summary>', '>');
+
+  if (findings.length === 0) {
+    lines.push('> Sin hallazgos detallados.');
+  } else {
+    for (const finding of findings) {
+      const label = getFindingLabel(finding, catalogIndexes);
+      const message = normalizeInlineText(finding?.message ?? 'Revisar el hallazgo reportado.');
+      lines.push(`> - ${label ? `${label}: ` : ''}${message}`);
+    }
+  }
+
+  lines.push('>', '> </details>');
+  return lines;
+}
+
+function getFindingLabel(finding, catalogIndexes) {
+  if (!finding) {
+    return '';
+  }
+
+  if (finding.collection === 'views') {
+    return catalogIndexes?.views?.get(finding.recordId)?.name ?? 'Vista';
+  }
+
+  if (finding.collection === 'relationships') {
+    return catalogIndexes?.relationships?.get(finding.recordId)?.name ?? 'Relación';
+  }
+
+  if (finding.collection === 'folders') {
+    return catalogIndexes?.folders?.get(finding.recordId)?.name ?? 'Carpeta';
+  }
+
+  if (finding.collection === 'elements') {
+    return catalogIndexes?.elements?.get(finding.recordId)?.name ?? 'Elemento';
+  }
+
+  return '';
+}
+
+function renderSystemErrorPanel(message, details) {
+  const lines = [
+    '## Errores del sistema',
+    '',
+    '> [!CAUTION]',
+    '> **ERROR · `contract_consistency_check`**',
+    '> **Dimensión:** Gobierno',
+    '>',
+    `> ${normalizeInlineText(message)}`,
+    '>',
+    '> **Acción:** Revisar la consistencia del contrato del reporte.',
+  ];
+
+  if (Array.isArray(details) && details.length > 0) {
+    lines.push('>', '> <details>', '> <summary>Cómo se resuelve</summary>', '>');
+    for (const detail of details) {
+      lines.push(`> - ${normalizeInlineText(detail)}`);
+    }
+    lines.push('>', '> </details>');
+  }
+
+  return lines;
+}
+
+function renderRulesBySection(summary) {
+  const lines = [];
+
+  for (const section of [...summary.treeSections, ...summary.auxSections]) {
+    lines.push(`### ${section}`);
+    lines.push('');
+
+    const rules = summary.sectionRules.get(section) ?? [];
+    if (rules.length === 0) {
+      lines.push('Sin reglas aplicadas.');
+      lines.push('');
+      continue;
+    }
+
+    for (const rule of rules) {
+      lines.push(...renderRuleAlert(rule, summary.catalogIndexes));
+      lines.push('');
+    }
+  }
+
+  return lines;
+}
+
+function readJsonFileIfExists(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+
+    return readJsonFile(filePath);
+  } catch {
+    return null;
+  }
+}
+
 async function renderSummaryMarkdownV03(summary) {
   const lines = ['# Calidad del diseño', ''];
 
@@ -189,53 +587,24 @@ async function renderSummaryMarkdownV03(summary) {
   lines.push('</tr>');
   lines.push('</table>');
   lines.push('');
-  lines.push(`Resultado ${summary.partial ? 'parcial' : 'completo'} · ${summary.coverage} dimensiones evaluadas · Contrato ${summary.contractOk ? 'OK' : 'ERROR'}`);
+
+  if (summary.contractIssues.length > 0) {
+    lines.push(...renderSystemErrorPanel('Contrato inconsistente', summary.contractIssues));
+    lines.push('');
+  }
+
+  lines.push('## Mapa de validación');
+  lines.push('');
+  lines.push(...renderValidationMapSection(summary));
+  lines.push('');
+  lines.push(...renderSupplementalSectionMap(summary, 'Model Integrity'));
+  lines.push('');
+  lines.push(...renderSupplementalSectionMap(summary, 'General'));
   lines.push('');
 
   lines.push('## Reporte de reglas');
   lines.push('');
-
-  const groupedRules = groupRulesByStatus(summary.ruleResults);
-  for (const status of ['fail', 'warning', 'notimplemented', 'pass']) {
-    const rules = groupedRules.get(status) ?? [];
-    lines.push(`### ${formatRuleGroupHeading(status)}`);
-    lines.push('');
-    lines.push(...buildRuleGroupNarrative(status, rules));
-    lines.push('');
-    lines.push(...buildRuleGroupAlert(status, rules.length));
-    lines.push('');
-
-    lines.push('| Regla | Dimensión | Severidad | Score | Evaluadas | Pasadas | Falladas | Hallazgos | Mensaje |');
-    lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |');
-    if (rules.length === 0) {
-      lines.push('| _Sin reglas_ | _Sin reglas_ | _Sin reglas_ | _Sin reglas_ | _Sin reglas_ | _Sin reglas_ | _Sin reglas_ | _Sin reglas_ | _Sin reglas_ |');
-      lines.push('');
-      continue;
-    }
-
-    for (const rule of rules) {
-      lines.push(`| \`${escapeInlineCode(rule.ruleId)}\` | ${normalizeInlineText(rule.dimension ?? 'General')} | ${normalizeInlineText(rule.severity ?? 'n/a')} | ${formatDimensionScore(rule.score)} | ${formatDimensionScore(rule.evaluated)} | ${formatDimensionScore(rule.passed)} | ${formatDimensionScore(rule.failed)} | ${formatDimensionScore(rule.findings?.length ?? 0)} | ${normalizeInlineText(getRuleMessage(rule))}${formatRuleFindingsInline(rule)} |`);
-    }
-
-    for (const rule of rules) {
-      if ((rule.findings ?? []).length === 0) {
-        continue;
-      }
-
-      lines.push('<details>');
-      lines.push(`<summary>Ver hallazgos de ${escapeInlineCode(rule.ruleId)}</summary>`);
-      lines.push('');
-      lines.push('| ID | Campo | Valor | Mensaje |');
-      lines.push('| --- | --- | --- | --- |');
-      for (const finding of rule.findings) {
-        lines.push(`| \`${truncateInline(finding.recordId ?? 'n/a', 12)}\` | ${normalizeInlineText(finding.field ?? 'n/a')} | ${normalizeInlineText(truncateInline(formatFindingValue(finding.value), 80))} | ${normalizeInlineText(finding.message ?? 'n/a')} |`);
-      }
-      lines.push('');
-      lines.push('</details>');
-      lines.push('');
-    }
-
-  }
+  lines.push(...renderRulesBySection(summary));
 
   return lines.join('\n').trimEnd();
 }
@@ -1127,18 +1496,26 @@ function renderIssuePanelEntryFinal(check, elementLabel, problemLabel, recommend
 
 function renderSystemErrorSummary(response) {
   const contractInconsistency = /Contrato inconsistente/i.test(String(response.error ?? ''));
-  const title = contractInconsistency ? 'ERROR — Contrato inconsistente' : 'ERROR — No se pudo completar la validación';
+  const ruleId = contractInconsistency ? 'contract_consistency_check' : 'system_error';
   return [
     '# Calidad del diseño',
     '',
-    '## Estado del sistema',
+    '## Errores del sistema',
     '',
     '> [!CAUTION]',
-    `> **${title}**`,
+    `> **ERROR · \`${ruleId}\`**`,
+    '> **Dimensión:** Gobierno',
     '>',
-    contractInconsistency ? '> La validación encontró una inconsistencia contractual.' : '> El motor no pudo completar la validación.',
-    `> **Detalle:** ${normalizeInlineText(response.error ?? 'Error desconocido.')}`,
-    '> **Acción:** Revisar el manifiesto, el artefacto de entrada y la configuración del workflow.',
+    `> ${contractInconsistency ? 'La validación encontró una inconsistencia contractual.' : 'El motor no pudo completar la validación.'}`,
+    '>',
+    `> **Acción:** ${contractInconsistency ? 'Revisar el contrato del reporte y volver a ejecutar la validación.' : 'Revisar el manifiesto, el artefacto de entrada y la configuración del workflow.'}`,
+    '',
+    '> <details>',
+    '> <summary>Cómo se resuelve</summary>',
+    '>',
+    `> - ${normalizeInlineText(response.error ?? 'Error desconocido.')}`,
+    '>',
+    '> </details>',
   ];
 }
 
