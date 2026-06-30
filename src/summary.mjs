@@ -399,20 +399,21 @@ function renderValidationMapSection(summary) {
   const lines = ['```text', 'ArchiMate Model'];
 
   sections.forEach((section, index) => {
-    const branch = index === sections.length - 1 ? '└─' : '├─';
-    const padding = index === sections.length - 1 ? '   ' : '│  ';
+    const branch = index === sections.length - 1 ? '└──' : '├──';
+    const padding = index === sections.length - 1 ? '    ' : '│   ';
     const rules = summary.sectionRules.get(section) ?? [];
 
     lines.push(`${branch} ${section}`);
 
     if (rules.length === 0) {
-      lines.push(`${padding}Sin reglas aplicadas`);
+      lines.push(`${padding}└── Sin reglas aplicadas`);
       return;
     }
 
-    for (const rule of rules) {
-      lines.push(`${padding}${getVisibleRuleStatus(rule)} · \`${escapeInlineCode(rule.ruleId)}\``);
-    }
+    rules.forEach((rule, ruleIndex) => {
+      const ruleBranch = ruleIndex === rules.length - 1 ? '└──' : '├──';
+      lines.push(`${padding}${ruleBranch} ${getVisibleRuleStatus(rule)} · \`${escapeInlineCode(rule.ruleId)}\``);
+    });
   });
 
   lines.push('```');
