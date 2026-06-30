@@ -561,31 +561,19 @@ async function renderSummaryMarkdownV03(summary) {
 
   const resultChart = await createQuickChartUrl(buildResultChartConfig(summary), { width: 250, height: 160 });
   const coverageChart = await createQuickChartUrl(buildCoverageChartConfig(summary), { width: 250, height: 160 });
-  const dimensionsChart = await createQuickChartUrl(summary.quickchartConfig, { width: 420, height: 340 });
+  const dimensionsChart = await createQuickChartUrl(summary.quickchartConfig, { width: 520, height: 400 });
 
   lines.push('<table>');
   lines.push('<tr>');
-  lines.push('<td width="42%" valign="top">');
-  lines.push('<table>');
-  lines.push('<tr>');
-  lines.push('<td align="center">');
+  lines.push('<td width="40%" valign="top" align="center">');
   lines.push('');
   lines.push(`<img src="${resultChart}" width="250" />`);
-  lines.push('');
-  lines.push('</td>');
-  lines.push('</tr>');
-  lines.push('<tr>');
-  lines.push('<td align="center">');
-  lines.push('');
+  lines.push('<br/>');
   lines.push(`<img src="${coverageChart}" width="250" />`);
-  lines.push('');
   lines.push('</td>');
-  lines.push('</tr>');
-  lines.push('</table>');
-  lines.push('</td>');
-  lines.push('<td width="58%" align="center" valign="middle">');
+  lines.push('<td width="60%" align="center" valign="middle">');
   lines.push('');
-  lines.push(`<img src="${dimensionsChart}" width="420" />`);
+  lines.push(`<img src="${dimensionsChart}" width="520" />`);
   lines.push('');
   lines.push('</td>');
   lines.push('</tr>');
