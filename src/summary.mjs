@@ -1173,7 +1173,7 @@ function buildResultChartConfig(summary) {
   const hasScore = Number.isFinite(score);
   const safeScore = hasScore ? Math.max(0, Math.min(100, score)) : 0;
   const remaining = hasScore ? Math.max(0, 100 - safeScore) : 100;
-  const title = `Cumplimiento ${String(summary?.scoreLabel ?? 'n/a').replace(/ \(parcial\)$/, '')}`;
+  const title = hasScore ? `Cumplimiento ${safeScore}%` : 'Cumplimiento n/a';
 
   return {
     type: 'doughnut',
