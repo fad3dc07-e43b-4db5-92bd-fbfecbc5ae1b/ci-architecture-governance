@@ -1217,6 +1217,7 @@ function buildCoverageChartConfig(summary) {
   const evaluated = Number(summary?.coverage?.split('/')[0]) || 0;
   const total = Number(summary?.coverage?.split('/')[1]) || 0;
   const notImplemented = Math.max(0, total - evaluated);
+  const title = `Cobertura ${evaluated}/${total} dimensiones`;
 
   return {
     type: 'doughnut',
@@ -1236,7 +1237,7 @@ function buildCoverageChartConfig(summary) {
         legend: { display: false },
         title: {
           display: true,
-          text: 'Cobertura',
+          text: title,
           font: { size: 13 },
         },
       },
