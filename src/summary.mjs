@@ -412,27 +412,24 @@ function getViewsRuleSummary(rule, catalogIndexes) {
 
   switch (String(rule?.ruleId ?? '')) {
     case 'vistas_vacias_regla':
-      return `Línea base: cada vista debe contener al menos 1 elemento visible. Valor observado: ${formattedValue} en ${viewName}.`;
+      return `${viewName} no aporta contexto si queda vacía. Hoy está en ${formattedValue} elementos visibles.`;
     case 'exceso_elementos_por_vista_regla':
-      return `Línea base: una vista no debe superar 30 elementos visibles. Valor observado: ${formattedValue} en ${viewName}.`;
+      return `${viewName} está demasiado cargada. Hoy tiene ${formattedValue} elementos visibles.`;
     case 'exceso_relaciones_por_vista_regla':
-      return `Línea base: una vista no debe superar 45 relaciones visibles. Valor observado: ${formattedValue} en ${viewName}.`;
+      return `${viewName} tiene demasiadas conexiones visibles. Hoy muestra ${formattedValue} relaciones.`;
     default:
       return '';
   }
 }
 
 function getViewsRuleAction(rule, catalogIndexes) {
-  const finding = (rule?.findings ?? [])[0] ?? null;
-  const viewName = getFindingLabel(finding, catalogIndexes) || 'Vista';
-
   switch (String(rule?.ruleId ?? '')) {
     case 'vistas_vacias_regla':
-      return `Aporta valor al evitar que ${viewName} quede vacía y agregue ruido en lugar de información.`;
+      return `Sirve para evitar vistas que no explican nada y solo agregan ruido.`;
     case 'exceso_elementos_por_vista_regla':
-      return `Aporta valor al mantener ${viewName} legible y facilitar la revisión del modelo.`;
+      return `Sirve para mantener la vista clara y fácil de revisar.`;
     case 'exceso_relaciones_por_vista_regla':
-      return `Aporta valor al reducir la saturación visual de ${viewName} y hacer más clara la trazabilidad.`;
+      return `Sirve para reducir el ruido visual y hacer más fácil seguir las relaciones.`;
     default:
       return '';
   }
@@ -446,9 +443,9 @@ function renderRuleAlert(rule, catalogIndexes) {
     `> **${status} · \`${escapeInlineCode(rule.ruleId)}\`**`,
     `> **Dimensión:** ${normalizeInlineText(rule.dimension ?? 'General')}`,
     '>',
-    `> ${normalizeInlineText(getRuleSummaryMessage(rule))}`,
+    `> ${normalizeInlineText(getRuleSummaryMessage(rule, catalogIndexes))}`,
     '>',
-    `> **Acción:** ${normalizeInlineText(getRuleActionMessage(rule))}`,
+    `> **Acción:** ${normalizeInlineText(getRuleActionMessage(rule, catalogIndexes))}`,
   ];
 
   if (status === 'PASS') {
