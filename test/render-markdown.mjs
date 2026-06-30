@@ -116,6 +116,13 @@ function markdownToHtml(input) {
       continue;
     }
 
+    if (line.trimStart().startsWith('<')) {
+      closeList();
+      closeQuote();
+      out.push(line);
+      continue;
+    }
+
     closeList();
     closeQuote();
     out.push(`<p>${renderInline(line)}</p>`);
