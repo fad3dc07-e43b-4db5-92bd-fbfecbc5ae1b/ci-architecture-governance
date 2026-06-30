@@ -1168,33 +1168,60 @@ function buildResultChartConfig(summary) {
   const title = hasScore ? `Cumplimiento ${formatPercentValue(completionPercent)}` : 'Cumplimiento n/a';
 
   return {
+    version: '2',
     type: 'doughnut',
     data: {
       labels: ['Cumplimiento', 'Pendiente'],
       datasets: [
         {
           data: [completionPercent, pendingPercent],
-          backgroundColor: ['#22c55e', '#e5e7eb'],
-          borderColor: ['#ffffff', '#ffffff'],
-          borderWidth: 6,
-          spacing: 2,
-          hoverOffset: 0,
+          backgroundColor: ['#22c55e', '#d1d5db'],
+          label: 'Dataset 1',
+          borderWidth: 10,
         },
       ],
     },
     options: {
       circumference: Math.PI,
-      rotation: -Math.PI,
-      cutout: '72%',
-      responsive: true,
-      maintainAspectRatio: false,
-      layout: { padding: 8 },
+      rotation: Math.PI,
+      cutoutPercentage: 75,
+      layout: { padding: 40 },
+      legend: {
+        display: false,
+      },
       plugins: {
-        legend: { display: false },
         title: {
           display: true,
           text: title,
           font: { size: 15, weight: 'bold' },
+        },
+        datalabels: {
+          color: '#000000',
+          anchor: 'end',
+          align: 'end',
+          formatter: (val) => formatPercentValue(val),
+          font: {
+            size: 18,
+            weight: 'bold',
+          },
+        },
+        doughnutlabel: {
+          labels: [
+            {
+              text: 'You are at',
+              font: {
+                size: 16,
+              },
+            },
+            {
+              text: hasScore ? formatPercentValue(completionPercent) : 'n/a',
+              color: '#000000',
+              font: {
+                size: 34,
+                weight: 'bold',
+              },
+            },
+          ],
         },
       },
     },
@@ -1360,17 +1387,18 @@ async function createQuickChartUrl(chartConfig, { width = 500, height = 300 } = 
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
+    const { version = '4', ...chart } = chartConfig ?? {};
     const response = await fetch('https://quickchart.io/chart/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        version: '4',
+        version,
         backgroundColor: 'white',
         width,
         height,
         format: 'png',
         devicePixelRatio: 2,
-        chart: chartConfig,
+        chart,
       }),
       signal: controller.signal,
     });
