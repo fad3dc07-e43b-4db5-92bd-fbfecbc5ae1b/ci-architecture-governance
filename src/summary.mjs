@@ -1171,9 +1171,9 @@ async function renderDashboardSectionFinal({ validators, complianceText, passCou
 function buildResultChartConfig(summary) {
   const score = Number(summary?.qualityScore?.overallScore);
   const hasScore = Number.isFinite(score);
-  const safeScore = hasScore ? Math.max(0, Math.min(100, score)) : 0;
-  const remaining = hasScore ? Math.max(0, 100 - safeScore) : 100;
-  const title = hasScore ? `Cumplimiento ${safeScore}%` : 'Cumplimiento n/a';
+  const completionPercent = hasScore ? Math.max(0, Math.min(100, Math.round(score))) : 0;
+  const pendingPercent = 100 - completionPercent;
+  const title = hasScore ? `Cumplimiento ${completionPercent}%` : 'Cumplimiento n/a';
 
   return {
     type: 'doughnut',
@@ -1181,7 +1181,7 @@ function buildResultChartConfig(summary) {
       labels: ['Score', 'Pendiente'],
       datasets: [
         {
-          data: [safeScore, remaining],
+          data: [completionPercent, pendingPercent],
           backgroundColor: ['#22c55e', '#e5e7eb'],
           borderWidth: 0,
         },
